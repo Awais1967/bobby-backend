@@ -50,6 +50,12 @@ async function login({ email, password, role }) {
     throw error;
   }
 
+  if (role === ROLES.HOST && user.status === "archived") {
+    const error = new Error("Your host account has been archived. Please contact Super Admin.");
+    error.statusCode = 403;
+    throw error;
+  }
+
   if (user.status !== "active") {
     const error = new Error("Account is not active.");
     error.statusCode = 403;

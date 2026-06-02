@@ -1,7 +1,15 @@
 const mongoose = require("mongoose");
 
+const { MATCH_STATUS } = require("../../constants/matchStatus");
 const Host = require("../hosts/host.model");
 const Location = require("./location.model");
+
+const ACTIVE_MATCH_STATUSES = [
+  MATCH_STATUS.SETUP,
+  MATCH_STATUS.WAITING,
+  MATCH_STATUS.LIVE,
+  MATCH_STATUS.INTERMISSION,
+];
 
 function createHttpError(message, statusCode) {
   const error = new Error(message);
@@ -19,7 +27,7 @@ function ensureLocationObjectId(id) {
   }
 }
 
-function toLocationResponse(location) {
+function toLocationResponse(location, options = {}) {
   if (!location) {
     return null;
   }
@@ -29,6 +37,13 @@ function toLocationResponse(location) {
   delete data.__v;
   data.id = data._id.toString();
   delete data._id;
+
+  if (!options.includeArchived && Array.isArray(data.assignedHostIds)) {
+    data.assignedHostIds = data.assignedHostIds.filter((host) => {
+      if (!host || !host.status) return true;
+      return host.status !== "archived";
+    });
+  }
 
   return data;
 }
@@ -97,7 +112,10 @@ async function validateAssignedHosts(assignedHostIds = []) {
     return uniqueHostIds;
   }
 
-  const count = await Host.countDocuments({ _id: { $in: uniqueHostIds } });
+  const count = await Host.countDocuments({
+    _id: { $in: uniqueHostIds },
+    status: { $ne: "archived" },
+  });
 
   if (count !== uniqueHostIds.length) {
     throw createHttpError("One or more assigned hosts were not found.", 404);
@@ -141,7 +159,7 @@ async function hasActiveMatch(locationId) {
   const Match = mongoose.model("Match");
   const activeMatch = await Match.findOne({
     locationId,
-    status: { $in: ["active", "live", "in_progress"] },
+    status: { $in: ACTIVE_MATCH_STATUSES },
   }).select("_id");
 
   return Boolean(activeMatch);
@@ -176,14 +194,16 @@ async function getLocations(query) {
   ]);
 
   return {
-    items: locations.map(toLocationResponse),
+    items: locations.map((location) =>
+      toLocationResponse(location, { includeArchived: query.includeArchived })
+    ),
     total,
     page: query.page,
     pageSize: query.pageSize,
   };
 }
 
-async function getLocationById(id) {
+async function getLocationById(id, options = {}) {
   ensureLocationObjectId(id);
 
   const location = await Location.findById(id).populate("assignedHostIds", "name email status");
@@ -192,7 +212,7 @@ async function getLocationById(id) {
     throw createHttpError("Location not found.", 404);
   }
 
-  return toLocationResponse(location);
+  return toLocationResponse(location, { includeArchived: options.includeArchived });
 }
 
 async function updateLocation(id, payload) {

@@ -12,6 +12,8 @@ router.use(requireRole(ROLES.SUPER_ADMIN, { message: "Only Super Admin can manag
 
 router.post("/", hostController.createHost);
 router.get("/", hostController.getHosts);
+router.patch("/:id/archive", hostController.archiveHost);
+router.patch("/:id/restore", hostController.restoreHost);
 router.get("/:id", hostController.getHostById);
 router.put("/:id", hostController.updateHost);
 router.patch("/:id/password", hostController.changeHostPassword);

@@ -11,12 +11,28 @@ const locationSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    venueLocation: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    location: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     contactName: {
       type: String,
       trim: true,
       default: "",
     },
     contactEmail: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      default: "",
+    },
+    clientEmail: {
       type: String,
       lowercase: true,
       trim: true,
@@ -42,6 +58,11 @@ const locationSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    zip: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     country: {
       type: String,
       trim: true,
@@ -54,8 +75,13 @@ const locationSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["active", "inactive", "suspended"],
+      enum: ["active", "inactive", "suspended", "archived"],
       default: "active",
+    },
+    billingMethod: {
+      type: String,
+      enum: ["card", "invoice"],
+      default: "invoice",
     },
     billingMode: {
       type: String,
@@ -95,6 +121,24 @@ const locationSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    cardBrand: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    cardLast4: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    cardExpMonth: {
+      type: Number,
+      default: null,
+    },
+    cardExpYear: {
+      type: Number,
+      default: null,
+    },
     invoiceNotes: {
       type: String,
       trim: true,
@@ -121,6 +165,50 @@ const locationSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: "",
+    },
+    pricingDiscount: {
+      type: Boolean,
+      default: false,
+    },
+    discountType: {
+      type: String,
+      enum: ["percentage", "fixed", ""],
+      default: "",
+    },
+    discountValue: {
+      type: Number,
+      default: 0,
+    },
+    discountDate: {
+      type: Date,
+      default: null,
+    },
+    lastLoginAt: {
+      type: Date,
+      default: null,
+    },
+    archivedAt: {
+      type: Date,
+      default: null,
+    },
+    archivedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
+    },
+    archiveReason: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    restoredAt: {
+      type: Date,
+      default: null,
+    },
+    restoredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
     },
     promoImageUrl: {
       type: String,
@@ -165,9 +253,43 @@ locationSchema.pre("validate", function defaultClientName(next) {
     this.clientName = this.name;
   }
 
-  next();
+  if (!this.name) {
+    this.name = this.clientName;
+  }
+
+  if (!this.venueLocation) {
+    this.venueLocation = this.location || this.address || this.name;
+  }
+
+  if (!this.location) {
+    this.location = this.venueLocation || this.address || "";
+  }
+
+  if (!this.clientEmail) {
+    this.clientEmail = this.contactEmail;
+  }
+
+  if (!this.contactEmail) {
+    this.contactEmail = this.clientEmail;
+  }
+
+  if (!this.billingMethod) {
+    this.billingMethod = this.billingMode === "auto_charge" ? "card" : "invoice";
+  }
+
+  if (typeof next === "function") {
+    next();
+  }
 });
 
-locationSchema.index({ name: "text", clientName: "text", contactEmail: "text", city: "text" });
+locationSchema.index({
+  name: "text",
+  clientName: "text",
+  venueLocation: "text",
+  clientEmail: "text",
+  contactEmail: "text",
+  city: "text",
+  zip: "text",
+});
 
 module.exports = mongoose.model("Location", locationSchema);

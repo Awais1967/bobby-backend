@@ -45,11 +45,12 @@ const adminSchema = new mongoose.Schema(
 
 adminSchema.pre("save", async function hashPassword(next) {
   if (!this.isModified("password")) {
-    return next();
+    if (typeof next === "function") return next();
+    return;
   }
 
   this.password = await bcrypt.hash(this.password, 12);
-  return next();
+  if (typeof next === "function") return next();
 });
 
 adminSchema.methods.comparePassword = function comparePassword(candidatePassword) {

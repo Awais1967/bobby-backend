@@ -1,6 +1,8 @@
 const Joi = require("joi");
 
-const statusValues = ["active", "inactive", "suspended"];
+const statusValues = ["active", "inactive", "suspended", "archived"];
+const editableStatusValues = ["active", "inactive", "suspended"];
+const restoreStatusValues = ["active", "inactive"];
 const objectIdPattern = /^[0-9a-fA-F]{24}$/;
 
 const createHostValidation = Joi.object({
@@ -8,14 +10,14 @@ const createHostValidation = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(8).required(),
   phone: Joi.string().trim().allow("").optional(),
-  status: Joi.string().valid(...statusValues).default("active"),
+  status: Joi.string().valid(...editableStatusValues).default("active"),
   assignedLocationIds: Joi.array().items(Joi.string().pattern(objectIdPattern)).default([]),
 });
 
 const updateHostValidation = Joi.object({
   name: Joi.string().trim().optional(),
   phone: Joi.string().trim().allow("").optional(),
-  status: Joi.string().valid(...statusValues).optional(),
+  status: Joi.string().valid(...editableStatusValues).optional(),
   assignedLocationIds: Joi.array().items(Joi.string().pattern(objectIdPattern)).optional(),
 })
   .min(1)
@@ -24,7 +26,15 @@ const updateHostValidation = Joi.object({
   });
 
 const updateHostStatusValidation = Joi.object({
-  status: Joi.string().valid(...statusValues).required(),
+  status: Joi.string().valid(...editableStatusValues).required(),
+});
+
+const archiveHostValidation = Joi.object({
+  reason: Joi.string().trim().allow("").default(""),
+});
+
+const restoreHostValidation = Joi.object({
+  status: Joi.string().valid(...restoreStatusValues).default("active"),
 });
 
 const changeHostPasswordValidation = Joi.object({
@@ -39,6 +49,7 @@ const getHostsQueryValidation = Joi.object({
   pageSize: Joi.number().integer().min(1).max(100).default(10),
   search: Joi.string().trim().allow("").optional(),
   status: Joi.string().valid(...statusValues).optional(),
+  includeArchived: Joi.boolean().truthy("true").falsy("false").default(false),
   locationId: Joi.string().pattern(objectIdPattern).optional(),
   sortBy: Joi.string()
     .valid("name", "email", "phone", "status", "createdAt", "updatedAt", "lastLoginAt")
@@ -62,9 +73,11 @@ function validate(schema, payload) {
 }
 
 module.exports = {
+  archiveHostValidation,
   changeHostPasswordValidation,
   createHostValidation,
   getHostsQueryValidation,
+  restoreHostValidation,
   updateHostStatusValidation,
   updateHostValidation,
   validate,

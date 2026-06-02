@@ -1,6 +1,6 @@
 const Joi = require("joi");
 
-const statusValues = ["active", "inactive", "suspended"];
+const statusValues = ["active", "inactive", "suspended", "archived"];
 const billingModeValues = ["auto_charge", "invoice_later"];
 const objectIdPattern = /^[0-9a-fA-F]{24}$/;
 
@@ -113,6 +113,7 @@ const getLocationsQueryValidation = Joi.object({
   city: Joi.string().trim().allow("").optional(),
   billingMode: Joi.string().valid(...billingModeValues).optional(),
   hostId: objectId.optional(),
+  includeArchived: Joi.boolean().truthy("true").falsy("false").default(false),
   sortBy: Joi.string()
     .valid("name", "clientName", "city", "country", "status", "billingMode", "createdAt", "updatedAt")
     .default("createdAt"),
@@ -126,6 +127,10 @@ const getHostLocationsQueryValidation = Joi.object({
   status: Joi.string().valid(...statusValues).default("active"),
   sortBy: Joi.string().valid("name", "clientName", "city", "country", "createdAt").default("name"),
   sortOrder: Joi.string().valid("asc", "desc").default("asc"),
+});
+
+const getLocationDetailQueryValidation = Joi.object({
+  includeArchived: Joi.boolean().truthy("true").falsy("false").default(false),
 });
 
 function validate(schema, payload) {
@@ -146,6 +151,7 @@ function validate(schema, payload) {
 module.exports = {
   assignLocationHostsValidation,
   createLocationValidation,
+  getLocationDetailQueryValidation,
   getHostLocationsQueryValidation,
   getLocationsQueryValidation,
   updateLocationStatusValidation,

@@ -1,8 +1,10 @@
 const hostService = require("./host.service");
 const {
+  archiveHostValidation,
   changeHostPasswordValidation,
   createHostValidation,
   getHostsQueryValidation,
+  restoreHostValidation,
   updateHostStatusValidation,
   updateHostValidation,
   validate,
@@ -102,13 +104,55 @@ async function updateHostStatus(req, res, next) {
   }
 }
 
-async function deleteHost(req, res, next) {
+async function archiveHost(req, res, next) {
   try {
-    await hostService.deleteHost(req.params.id);
+    const payload = validate(archiveHostValidation, req.body || {});
+    const host = await hostService.archiveHost(req.params.id, req.user.id, payload.reason);
 
     return res.status(200).json({
       success: true,
-      message: "Host deleted successfully",
+      message: "Host archived successfully",
+      data: {
+        host,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function restoreHost(req, res, next) {
+  try {
+    const payload = validate(restoreHostValidation, req.body || {});
+    const host = await hostService.restoreHost(req.params.id, req.user.id, payload);
+
+    return res.status(200).json({
+      success: true,
+      message: "Host restored successfully",
+      data: {
+        host,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function deleteHost(req, res, next) {
+  try {
+    const result = await hostService.deleteHost(req.params.id, req.user.id);
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      data: result.host
+        ? {
+            host: result.host,
+            archived: result.archived,
+          }
+        : {
+            archived: result.archived,
+          },
     });
   } catch (error) {
     return next(error);
@@ -116,11 +160,13 @@ async function deleteHost(req, res, next) {
 }
 
 module.exports = {
+  archiveHost,
   changeHostPassword,
   createHost,
   deleteHost,
   getHostById,
   getHosts,
+  restoreHost,
   updateHost,
   updateHostStatus,
 };

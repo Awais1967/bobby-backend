@@ -1,5 +1,8 @@
 const { Server } = require("socket.io");
 
+const { setSocketServer } = require("./match.socket");
+const { registerLeaderboardSocketHandlers } = require("./leaderboard.socket");
+
 function initializeSocket(server) {
   const io = new Server(server, {
     cors: {
@@ -7,6 +10,9 @@ function initializeSocket(server) {
       credentials: true,
     },
   });
+
+  setSocketServer(io);
+  registerLeaderboardSocketHandlers(io);
 
   io.on("connection", (socket) => {
     console.log(`Socket connected: ${socket.id}`);

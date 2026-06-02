@@ -1,6 +1,15 @@
 const mongoose = require("mongoose");
 
+const { MATCH_STATUS } = require("../../constants/matchStatus");
+const Match = require("../matches/match.model");
 const Host = require("./host.model");
+
+const ACTIVE_MATCH_STATUSES = [
+  MATCH_STATUS.SETUP,
+  MATCH_STATUS.WAITING,
+  MATCH_STATUS.LIVE,
+  MATCH_STATUS.INTERMISSION,
+];
 
 function createHttpError(message, statusCode) {
   const error = new Error(message);
@@ -55,6 +64,7 @@ async function createHost(payload) {
 
 async function getHosts(query) {
   const {
+    includeArchived,
     page,
     pageSize,
     search,
@@ -73,6 +83,8 @@ async function getHosts(query) {
 
   if (status) {
     filter.status = status;
+  } else if (!includeArchived) {
+    filter.status = { $ne: "archived" };
   }
 
   if (locationId) {
@@ -119,6 +131,10 @@ async function updateHost(id, payload) {
     throw createHttpError("Host not found.", 404);
   }
 
+  if (host.status === "archived" && Object.prototype.hasOwnProperty.call(payload, "status")) {
+    throw createHttpError("Only archived hosts can be restored.", 400);
+  }
+
   const allowedFields = ["name", "phone", "status", "assignedLocationIds"];
 
   allowedFields.forEach((field) => {
@@ -152,23 +168,37 @@ async function changeHostPassword(id, payload) {
 async function updateHostStatus(id, status) {
   ensureObjectId(id);
 
-  const host = await Host.findByIdAndUpdate(
-    id,
-    { status },
-    {
-      new: true,
-      runValidators: true,
-    }
-  );
+  const host = await Host.findById(id);
 
   if (!host) {
     throw createHttpError("Host not found.", 404);
   }
 
+  if (host.status === "archived") {
+    throw createHttpError("Only archived hosts can be restored.", 400);
+  }
+
+  host.status = status;
+  await host.save();
+
   return toHostResponse(host);
 }
 
-async function deleteHost(id) {
+async function hasActiveMatch(hostId) {
+  const activeMatch = await Match.findOne({
+    hostId,
+    status: { $in: ACTIVE_MATCH_STATUSES },
+  }).select("_id");
+
+  return Boolean(activeMatch);
+}
+
+async function hasMatchHistory(hostId) {
+  const match = await Match.findOne({ hostId }).select("_id");
+  return Boolean(match);
+}
+
+async function archiveHost(id, adminId, reason = "") {
   ensureObjectId(id);
 
   const host = await Host.findById(id);
@@ -177,19 +207,94 @@ async function deleteHost(id) {
     throw createHttpError("Host not found.", 404);
   }
 
-  if (host.currentActiveMatchId) {
+  if (host.status === "archived") {
+    throw createHttpError("Host is already archived.", 400);
+  }
+
+  if (await hasActiveMatch(host._id)) {
+    throw createHttpError("Host cannot be archived while running an active match.", 400);
+  }
+
+  host.status = "archived";
+  host.archivedAt = new Date();
+  host.archivedBy = adminId;
+  host.archiveReason = reason || "";
+  host.currentActiveMatchId = null;
+
+  await host.save();
+  return toHostResponse(host);
+}
+
+async function restoreHost(id, adminId, payload = {}) {
+  ensureObjectId(id);
+
+  const host = await Host.findById(id);
+
+  if (!host) {
+    throw createHttpError("Host not found.", 404);
+  }
+
+  if (host.status !== "archived") {
+    throw createHttpError("Only archived hosts can be restored.", 400);
+  }
+
+  host.status = payload.status || "active";
+  host.restoredAt = new Date();
+  host.restoredBy = adminId;
+
+  await host.save();
+  return toHostResponse(host);
+}
+
+async function deleteHost(id, adminId) {
+  ensureObjectId(id);
+
+  const host = await Host.findById(id);
+
+  if (!host) {
+    throw createHttpError("Host not found.", 404);
+  }
+
+  if (await hasActiveMatch(host._id)) {
     throw createHttpError("Host cannot be deleted while running an active match.", 400);
   }
 
+  if (await hasMatchHistory(host._id)) {
+    if (host.status !== "archived") {
+      host.status = "archived";
+      host.archivedAt = new Date();
+      host.archivedBy = adminId;
+      host.archiveReason = host.archiveReason || "Archived instead of deleted because host has match history.";
+      host.currentActiveMatchId = null;
+      await host.save();
+    }
+
+    return {
+      archived: true,
+      host: toHostResponse(host),
+      message: "Host has match history and was archived instead of deleted.",
+    };
+  }
+
   await host.deleteOne();
+
+  return {
+    archived: false,
+    host: null,
+    message: "Host deleted successfully",
+  };
 }
 
 module.exports = {
+  archiveHost,
   changeHostPassword,
   createHost,
   deleteHost,
   getHostById,
   getHosts,
+  hasActiveMatch,
+  hasMatchHistory,
+  restoreHost,
   updateHost,
   updateHostStatus,
 };

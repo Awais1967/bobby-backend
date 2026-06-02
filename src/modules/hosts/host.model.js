@@ -28,8 +28,31 @@ const hostSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["active", "inactive", "suspended"],
+      enum: ["active", "inactive", "suspended", "archived"],
       default: "active",
+    },
+    archivedAt: {
+      type: Date,
+      default: null,
+    },
+    archivedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
+    },
+    archiveReason: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    restoredAt: {
+      type: Date,
+      default: null,
+    },
+    restoredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
     },
     assignedLocationIds: [
       {
@@ -68,11 +91,12 @@ const hostSchema = new mongoose.Schema(
 
 hostSchema.pre("save", async function hashPassword(next) {
   if (!this.isModified("password")) {
-    return next();
+    if (typeof next === "function") return next();
+    return;
   }
 
   this.password = await bcrypt.hash(this.password, 12);
-  return next();
+  if (typeof next === "function") return next();
 });
 
 hostSchema.methods.comparePassword = function comparePassword(candidatePassword) {

@@ -2,6 +2,7 @@ const locationService = require("./location.service");
 const {
   assignLocationHostsValidation,
   createLocationValidation,
+  getLocationDetailQueryValidation,
   getHostLocationsQueryValidation,
   getLocationsQueryValidation,
   updateLocationStatusValidation,
@@ -42,7 +43,8 @@ async function getLocations(req, res, next) {
 
 async function getLocationById(req, res, next) {
   try {
-    const location = await locationService.getLocationById(req.params.id);
+    const query = validate(getLocationDetailQueryValidation, req.query);
+    const location = await locationService.getLocationById(req.params.id, query);
 
     return res.status(200).json({
       success: true,
