@@ -757,15 +757,88 @@
               {
                 "key": "Authorization",
                 "value": "Bearer {{token}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
               }
             ],
             "body": {
-              "mode": "raw",
-              "raw": "{\n  \"text\": \"What is the capital of France?\",\n  \"options\": [\"Paris\", \"Berlin\", \"Rome\", \"Madrid\"],\n  \"correctOption\": 0,\n  \"difficulty\": \"easy\"\n}"
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "questionText",
+                  "value": "What is the capital of France?",
+                  "type": "text"
+                },
+                {
+                  "key": "category",
+                  "value": "Geography",
+                  "type": "text"
+                },
+                {
+                  "key": "type",
+                  "value": "multiple_choice",
+                  "type": "text"
+                },
+                {
+                  "key": "difficulty",
+                  "value": "easy",
+                  "type": "text"
+                },
+                {
+                  "key": "status",
+                  "value": "active",
+                  "type": "text"
+                },
+                {
+                  "key": "options",
+                  "value": "[{\"label\":\"A\",\"text\":\"Paris\"},{\"label\":\"B\",\"text\":\"Berlin\"},{\"label\":\"C\",\"text\":\"Rome\"},{\"label\":\"D\",\"text\":\"Madrid\"}]",
+                  "type": "text",
+                  "description": "JSON array string for multipart/form-data."
+                },
+                {
+                  "key": "correctAnswer",
+                  "value": "Paris",
+                  "type": "text"
+                },
+                {
+                  "key": "correctAnswers",
+                  "value": "[\"Paris\"]",
+                  "type": "text",
+                  "description": "JSON array string or comma-separated values."
+                },
+                {
+                  "key": "points",
+                  "value": "10",
+                  "type": "text"
+                },
+                {
+                  "key": "partialCredit",
+                  "value": "false",
+                  "type": "text"
+                },
+                {
+                  "key": "mediaType",
+                  "value": "none",
+                  "type": "text"
+                },
+                {
+                  "key": "mediaCaption",
+                  "value": "",
+                  "type": "text"
+                },
+                {
+                  "key": "image",
+                  "type": "file",
+                  "src": [],
+                  "disabled": true,
+                  "description": "Optional image file. Multer accepts jpeg, png, webp, gif up to 10 MB."
+                },
+                {
+                  "key": "audio",
+                  "type": "file",
+                  "src": [],
+                  "disabled": true,
+                  "description": "Optional audio file. Multer accepts mp3, wav, mp4 audio up to 50 MB."
+                }
+              ]
             },
             "url": {
               "raw": "{{baseUrl}}/questions",
@@ -815,7 +888,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "[\n  {\n    \"text\": \"What is 2+2?\",\n    \"options\": [\"3\", \"4\", \"5\"],\n    \"correctOption\": 1\n  },\n  {\n    \"text\": \"Which planet is known as the Red Planet?\",\n    \"options\": [\"Earth\", \"Mars\", \"Jupiter\"],\n    \"correctOption\": 1\n  }\n]"
+              "raw": "{\n  \"questions\": [\n    {\n      \"questionText\": \"What is 2+2?\",\n      \"category\": \"Math\",\n      \"type\": \"multiple_choice\",\n      \"difficulty\": \"easy\",\n      \"options\": [\n        {\n          \"label\": \"A\",\n          \"text\": \"3\"\n        },\n        {\n          \"label\": \"B\",\n          \"text\": \"4\"\n        },\n        {\n          \"label\": \"C\",\n          \"text\": \"5\"\n        }\n      ],\n      \"correctAnswer\": \"4\",\n      \"correctAnswers\": [\n        \"4\"\n      ],\n      \"points\": 10\n    },\n    {\n      \"questionText\": \"Which planet is known as the Red Planet?\",\n      \"category\": \"Science\",\n      \"type\": \"multiple_choice\",\n      \"difficulty\": \"easy\",\n      \"options\": [\n        {\n          \"label\": \"A\",\n          \"text\": \"Earth\"\n        },\n        {\n          \"label\": \"B\",\n          \"text\": \"Mars\"\n        },\n        {\n          \"label\": \"C\",\n          \"text\": \"Jupiter\"\n        }\n      ],\n      \"correctAnswer\": \"Mars\",\n      \"correctAnswers\": [\n        \"Mars\"\n      ],\n      \"points\": 10\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/questions/bulk",
@@ -859,15 +932,88 @@
               {
                 "key": "Authorization",
                 "value": "Bearer {{token}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
               }
             ],
             "body": {
-              "mode": "raw",
-              "raw": "{\n  \"text\": \"What is the capital of Germany?\",\n  \"options\": [\"Berlin\", \"Paris\", \"Rome\"],\n  \"correctOption\": 0\n}"
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "questionText",
+                  "value": "What is the capital of Germany?",
+                  "type": "text"
+                },
+                {
+                  "key": "category",
+                  "value": "Geography",
+                  "type": "text"
+                },
+                {
+                  "key": "type",
+                  "value": "multiple_choice",
+                  "type": "text"
+                },
+                {
+                  "key": "difficulty",
+                  "value": "medium",
+                  "type": "text"
+                },
+                {
+                  "key": "status",
+                  "value": "active",
+                  "type": "text"
+                },
+                {
+                  "key": "options",
+                  "value": "[{\"label\":\"A\",\"text\":\"Berlin\"},{\"label\":\"B\",\"text\":\"Paris\"},{\"label\":\"C\",\"text\":\"Rome\"}]",
+                  "type": "text",
+                  "description": "JSON array string for multipart/form-data."
+                },
+                {
+                  "key": "correctAnswer",
+                  "value": "Berlin",
+                  "type": "text"
+                },
+                {
+                  "key": "correctAnswers",
+                  "value": "[\"Berlin\"]",
+                  "type": "text",
+                  "description": "JSON array string or comma-separated values."
+                },
+                {
+                  "key": "points",
+                  "value": "10",
+                  "type": "text"
+                },
+                {
+                  "key": "partialCredit",
+                  "value": "false",
+                  "type": "text"
+                },
+                {
+                  "key": "mediaType",
+                  "value": "none",
+                  "type": "text"
+                },
+                {
+                  "key": "mediaCaption",
+                  "value": "",
+                  "type": "text"
+                },
+                {
+                  "key": "image",
+                  "type": "file",
+                  "src": [],
+                  "disabled": true,
+                  "description": "Optional replacement image file."
+                },
+                {
+                  "key": "audio",
+                  "type": "file",
+                  "src": [],
+                  "disabled": true,
+                  "description": "Optional replacement audio file."
+                }
+              ]
             },
             "url": {
               "raw": "{{baseUrl}}/questions/{{questionId}}",

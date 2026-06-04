@@ -237,6 +237,8 @@ async function getQuestions(query) {
 
   if (query.status) {
     filter.status = query.status;
+  } else {
+    filter.status = { $ne: "archived" };
   }
 
   if (query.tag) {

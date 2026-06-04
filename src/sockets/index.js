@@ -3,10 +3,15 @@ const { Server } = require("socket.io");
 const { setSocketServer } = require("./match.socket");
 const { registerLeaderboardSocketHandlers } = require("./leaderboard.socket");
 
+const allowedCorsOrigins = (process.env.CORS_ORIGIN || process.env.CLIENT_URL || "http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 function initializeSocket(server) {
   const io = new Server(server, {
     cors: {
-      origin: process.env.CORS_ORIGIN || process.env.CLIENT_URL || "*",
+      origin: allowedCorsOrigins,
       credentials: true,
     },
   });

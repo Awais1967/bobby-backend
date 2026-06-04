@@ -151,6 +151,8 @@ async function getGames(query) {
 
   if (query.status) {
     filter.status = query.status;
+  } else {
+    filter.status = { $ne: "archived" };
   }
 
   if (query.type) {

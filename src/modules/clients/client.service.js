@@ -212,7 +212,7 @@ async function syncHostsForClient(clientId, previousHostIds = [], nextHostIds = 
 
 async function uploadClientLogo(file) {
   if (!file) return "";
-  return fileUploadService.uploadFile(file, { folder: "client-logos" });
+  return fileUploadService.uploadFile(file, { folder: "clients/logos" });
 }
 
 async function ensureStripePaymentSetup(payload, client = null) {
