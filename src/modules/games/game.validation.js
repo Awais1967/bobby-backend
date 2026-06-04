@@ -2,6 +2,8 @@ const Joi = require("joi");
 
 const statusValues = ["draft", "scheduled", "active", "archived"];
 const typeValues = ["weekly", "test", "private_event", "special"];
+const minGameRounds = 1;
+const maxGameRounds = 4;
 const objectIdPattern = /^[0-9a-fA-F]{24}$/;
 const objectId = Joi.string().pattern(objectIdPattern);
 
@@ -35,7 +37,10 @@ const baseGameFields = {
   assignedLocationIds: Joi.array().items(objectId).default([]),
   assignedHostIds: Joi.array().items(objectId).default([]),
   isGlobal: Joi.boolean().default(false),
-  rounds: Joi.array().items(roundSchema).default([]),
+  rounds: Joi.array().items(roundSchema).min(minGameRounds).max(maxGameRounds).default([]).messages({
+    "array.min": "Game must have at least 1 quarter.",
+    "array.max": "Game can have a maximum of 4 quarters.",
+  }),
   intermissions: Joi.array().items(intermissionSchema).default([]),
   finalRound: roundSchema.allow(null).default(null),
   defaultQuestionTime: Joi.number().integer().min(0).default(60),
@@ -83,7 +88,10 @@ const updateGameValidation = Joi.object({
   assignedLocationIds: Joi.array().items(objectId).optional(),
   assignedHostIds: Joi.array().items(objectId).optional(),
   isGlobal: Joi.boolean().optional(),
-  rounds: Joi.array().items(roundSchema).optional(),
+  rounds: Joi.array().items(roundSchema).min(minGameRounds).max(maxGameRounds).optional().messages({
+    "array.min": "Game must have at least 1 quarter.",
+    "array.max": "Game can have a maximum of 4 quarters.",
+  }),
   intermissions: Joi.array().items(intermissionSchema).optional(),
   finalRound: roundSchema.allow(null).optional(),
   defaultQuestionTime: Joi.number().integer().min(0).optional(),

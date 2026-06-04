@@ -1,5 +1,8 @@
 const mongoose = require("mongoose");
 
+const minGameRounds = 1;
+const maxGameRounds = 4;
+
 const roundSchema = new mongoose.Schema(
   {
     roundNumber: {
@@ -123,7 +126,19 @@ const gameSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    rounds: [roundSchema],
+    rounds: {
+      type: [roundSchema],
+      validate: {
+        validator(rounds) {
+          return (
+            Array.isArray(rounds) &&
+            rounds.length >= minGameRounds &&
+            rounds.length <= maxGameRounds
+          );
+        },
+        message: "Game must have between 1 and 4 quarters.",
+      },
+    },
     intermissions: [intermissionSchema],
     finalRound: {
       type: roundSchema,

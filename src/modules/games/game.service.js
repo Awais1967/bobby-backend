@@ -4,10 +4,23 @@ const Host = require("../hosts/host.model");
 const Location = require("../locations/location.model");
 const Game = require("./game.model");
 
+const minGameRounds = 1;
+const maxGameRounds = 4;
+
 function createHttpError(message, statusCode) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+}
+
+function validateGameRounds(rounds = []) {
+  if (!Array.isArray(rounds) || rounds.length < minGameRounds) {
+    throw createHttpError("Game must have at least 1 quarter.", 400);
+  }
+
+  if (rounds.length > maxGameRounds) {
+    throw createHttpError("Game can have a maximum of 4 quarters.", 400);
+  }
 }
 
 function escapeRegex(value) {
@@ -124,6 +137,8 @@ async function createGame(payload, adminId) {
   const finalStatus = payload.status || "draft";
   const rounds = payload.rounds || [];
 
+  validateGameRounds(rounds);
+
   if ((finalStatus === "scheduled" || finalStatus === "active") && rounds.length === 0) {
     throw createHttpError("Game must have at least one round before scheduling.", 400);
   }
@@ -223,6 +238,8 @@ async function updateGame(id, payload) {
   const finalStatus = payload.status || game.status;
   const finalRounds = payload.rounds || game.rounds || [];
 
+  validateGameRounds(finalRounds);
+
   if ((finalStatus === "scheduled" || finalStatus === "active") && finalRounds.length === 0) {
     throw createHttpError("Game must have at least one round before scheduling.", 400);
   }
@@ -255,6 +272,14 @@ async function updateGameStatus(id, status) {
   const game = await Game.findById(id);
   if (!game) {
     throw createHttpError("Game not found.", 404);
+  }
+
+  try {
+    validateGameRounds(game.rounds || []);
+  } catch (error) {
+    if (status === "scheduled" || status === "active") {
+      throw error;
+    }
   }
 
   if ((status === "scheduled" || status === "active") && (!game.rounds || game.rounds.length === 0)) {

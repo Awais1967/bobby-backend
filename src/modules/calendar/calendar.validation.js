@@ -9,6 +9,8 @@ const CALENDAR_DEFAULT_PAGE_SIZE = 50;
 const CALENDAR_MAX_PAGE_SIZE = 200;
 const CALENDAR_DEFAULT_OVERVIEW_LIMIT = 10;
 const CALENDAR_MAX_OVERVIEW_LIMIT = 100;
+const CALENDAR_GAME_STATUSES = ["draft", "scheduled", "active"];
+const CALENDAR_GAME_TYPES = ["weekly", "test", "private_event", "special"];
 
 const objectIdPattern = /^[0-9a-fA-F]{24}$/;
 
@@ -25,6 +27,8 @@ const optionalFilterFields = {
   locationId: Joi.string().pattern(objectIdPattern).optional(),
   hostId: Joi.string().pattern(objectIdPattern).optional(),
   gameId: Joi.string().pattern(objectIdPattern).optional(),
+  gameStatus: Joi.string().valid(...CALENDAR_GAME_STATUSES).optional(),
+  gameType: Joi.string().valid(...CALENDAR_GAME_TYPES).optional(),
   matchStatus: Joi.string().valid(...Object.values(MATCH_STATUS)).optional(),
   billingStatus: Joi.string().valid(...Object.values(BILLING_STATUS)).optional(),
   billingMode: Joi.string().valid(...Object.values(BILLING_MODE)).optional(),

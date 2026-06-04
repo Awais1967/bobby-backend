@@ -13,11 +13,26 @@ const Match = require("../matches/match.model");
 const Team = require("../matches/team.model");
 const reportService = require("../reports/report.service");
 
-const UPCOMING_GAME_STATUSES = ["scheduled", "active"];
+const CALENDAR_GAME_STATUSES = ["draft", "scheduled", "active"];
 const CALENDAR_TEAM_STAGE_LIMIT = 25;
+const CALENDAR_GAME_SELECT = "title description type status scheduledDate availableFrom availableTo isRecurring recurrenceRule isGlobal assignedLocationIds assignedHostIds totalQuestions";
 
 function idToString(value) {
   return value ? String(value) : null;
+}
+
+function refIdToString(value) {
+  if (!value) return null;
+  return idToString(value._id || value);
+}
+
+function refName(value) {
+  if (!value || typeof value !== "object") return "";
+  return value.name || value.email || "";
+}
+
+function joinRefNames(values = []) {
+  return values.map(refName).filter(Boolean).join(", ");
 }
 
 function toObjectId(value) {
@@ -114,6 +129,33 @@ function applySearchCondition(filter, search) {
   }
 }
 
+function buildCalendarGameFilter(query = {}, start, end) {
+  const filter = {
+    status: query.gameStatus || { $in: CALENDAR_GAME_STATUSES },
+    scheduledDate: { $gte: start, $lte: end },
+  };
+
+  if (query.gameId) filter._id = toObjectId(query.gameId);
+  if (query.locationId) filter.assignedLocationIds = toObjectId(query.locationId);
+  if (query.hostId) filter.assignedHostIds = toObjectId(query.hostId);
+  if (query.gameType) filter.type = query.gameType;
+
+  if (query.search) {
+    const regex = new RegExp(escapeRegex(query.search), "i");
+    filter.$or = [{ title: regex }, { description: regex }, { type: regex }, { status: regex }];
+  }
+
+  return filter;
+}
+
+function calendarGameQuery(query, start, end) {
+  return Game.find(buildCalendarGameFilter(query, start, end))
+    .select(CALENDAR_GAME_SELECT)
+    .populate("assignedLocationIds", "name city status")
+    .populate("assignedHostIds", "name email status")
+    .sort({ scheduledDate: 1 });
+}
+
 function pickMatchSort(sortBy, sortOrder) {
   const allowed = new Set([
     "startedAt",
@@ -165,6 +207,9 @@ function formatMatchEvent(match) {
 }
 
 function formatGameEvent(game) {
+  const locations = game.assignedLocationIds || [];
+  const hosts = game.assignedHostIds || [];
+
   return {
     id: idToString(game._id),
     type: "game",
@@ -179,8 +224,10 @@ function formatGameEvent(game) {
     isRecurring: Boolean(game.isRecurring),
     recurrenceRule: game.recurrenceRule || "",
     isGlobal: Boolean(game.isGlobal),
-    locationIds: (game.assignedLocationIds || []).map(idToString),
-    hostIds: (game.assignedHostIds || []).map(idToString),
+    locationIds: locations.map(refIdToString).filter(Boolean),
+    locationName: joinRefNames(locations),
+    hostIds: hosts.map(refIdToString).filter(Boolean),
+    hostName: joinRefNames(hosts),
     totalQuestions: game.totalQuestions || 0,
   };
 }
@@ -278,7 +325,13 @@ async function getMonthlyCalendarMatches(query) {
 
 async function getCalendarMatchesByRange(query) {
   const range = buildDateRange(query.startDate, query.endDate);
-  return fetchCalendarMatches(range, query);
+  const matches = await fetchCalendarMatches(range, query, { defaultToCompleted: false });
+  const games = await calendarGameQuery(query, range.start, range.end).lean();
+
+  return {
+    ...matches,
+    games: games.map(formatGameEvent),
+  };
 }
 
 async function getCalendarDayMatches(query) {
@@ -318,13 +371,7 @@ async function getCalendarDayMatches(query) {
     teams: teamDataByMatch.get(event.dbId) || [],
   }));
 
-  const games = await Game.find({
-    status: { $in: UPCOMING_GAME_STATUSES },
-    scheduledDate: { $gte: start, $lte: end },
-  })
-    .select("title description type status scheduledDate availableFrom availableTo isRecurring recurrenceRule isGlobal assignedLocationIds assignedHostIds totalQuestions")
-    .sort({ scheduledDate: 1 })
-    .lean();
+  const games = await calendarGameQuery(query, start, end).lean();
 
   return {
     date: formatCalendarEventDate(start),
@@ -381,10 +428,7 @@ async function getCalendarSummary(query) {
   });
 
   const buckets = buildSummaryBuckets(matches);
-  const upcomingGames = await Game.countDocuments({
-    status: { $in: UPCOMING_GAME_STATUSES },
-    scheduledDate: { $gte: start, $lte: end },
-  });
+  const upcomingGames = await Game.countDocuments(buildCalendarGameFilter(query, start, end));
 
   return {
     period: buildPeriodResponse(start, end),
@@ -425,7 +469,7 @@ async function getCalendarOverview(query) {
 
   const now = new Date();
   const upcomingFilter = {
-    status: { $in: UPCOMING_GAME_STATUSES },
+    status: { $in: CALENDAR_GAME_STATUSES },
     scheduledDate: { $gte: now },
   };
 
@@ -435,6 +479,9 @@ async function getCalendarOverview(query) {
       .limit(limit)
       .lean(),
     Game.find(upcomingFilter)
+      .select(CALENDAR_GAME_SELECT)
+      .populate("assignedLocationIds", "name city status")
+      .populate("assignedHostIds", "name email status")
       .sort({ scheduledDate: 1 })
       .limit(limit)
       .lean(),
