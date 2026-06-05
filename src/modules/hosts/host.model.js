@@ -31,6 +31,11 @@ const hostSchema = new mongoose.Schema(
       enum: ["active", "inactive", "suspended", "archived"],
       default: "active",
     },
+    avatarUrl: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     archivedAt: {
       type: Date,
       default: null,

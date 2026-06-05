@@ -16,6 +16,14 @@ const changePasswordSchema = Joi.object({
   }),
 });
 
+const updateProfileSchema = Joi.object({
+  name: Joi.string().trim().min(1).required().messages({
+    "any.required": "Full name is required.",
+    "string.empty": "Full name is required.",
+  }),
+  avatarUrl: Joi.string().trim().allow("").max(750000).optional(),
+});
+
 function validate(schema, payload) {
   const { error, value } = schema.validate(payload, {
     abortEarly: false,
@@ -34,5 +42,6 @@ function validate(schema, payload) {
 module.exports = {
   changePasswordSchema,
   loginSchema,
+  updateProfileSchema,
   validate,
 };

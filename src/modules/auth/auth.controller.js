@@ -2,6 +2,7 @@ const authService = require("./auth.service");
 const {
   changePasswordSchema,
   loginSchema,
+  updateProfileSchema,
   validate,
 } = require("./auth.validation");
 
@@ -63,9 +64,31 @@ async function changePassword(req, res, next) {
   }
 }
 
+async function updateProfile(req, res, next) {
+  try {
+    const payload = validate(updateProfileSchema, req.body);
+    const user = await authService.updateProfile({
+      user: req.user,
+      name: payload.name,
+      avatarUrl: payload.avatarUrl,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: {
+        user,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   changePassword,
   login,
   logout,
   me,
+  updateProfile,
 };

@@ -33,6 +33,11 @@ const adminSchema = new mongoose.Schema(
       enum: ["active", "inactive", "suspended"],
       default: "active",
     },
+    avatarUrl: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     lastLoginAt: {
       type: Date,
       default: null,

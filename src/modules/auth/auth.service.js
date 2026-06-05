@@ -20,6 +20,7 @@ function toUserProfile(user, role) {
     id: user._id.toString(),
     name: user.name,
     email: user.email,
+    avatarUrl: user.avatarUrl || "",
     role,
     status: user.status,
   };
@@ -125,8 +126,35 @@ async function changePassword({ user: authUser, currentPassword, newPassword }) 
   return toUserProfile(user, authUser.role);
 }
 
+async function updateProfile({ user: authUser, name, avatarUrl }) {
+  const UserModel = getModelByRole(authUser.role);
+
+  if (!UserModel) {
+    const error = new Error("Invalid user role.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const user = await UserModel.findById(authUser.id);
+
+  if (!user) {
+    const error = new Error("User not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  user.name = name;
+  if (avatarUrl !== undefined) {
+    user.avatarUrl = avatarUrl;
+  }
+
+  await user.save();
+  return toUserProfile(user, authUser.role);
+}
+
 module.exports = {
   changePassword,
   getCurrentUser,
   login,
+  updateProfile,
 };
