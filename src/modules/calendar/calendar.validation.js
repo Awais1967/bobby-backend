@@ -32,10 +32,11 @@ const optionalFilterFields = {
   matchStatus: Joi.string().valid(...Object.values(MATCH_STATUS)).optional(),
   billingStatus: Joi.string().valid(...Object.values(BILLING_STATUS)).optional(),
   billingMode: Joi.string().valid(...Object.values(BILLING_MODE)).optional(),
+  eventCategory: Joi.string().valid("game", "match").optional(),
   search: Joi.string().trim().allow("").optional(),
 };
 
-const sortFields = ["startedAt", "closedAt", "createdAt", "matchId", "gameTitle", "locationName", "hostName"];
+const sortFields = ["scheduledAt", "startedAt", "closedAt", "createdAt", "matchId", "gameTitle", "locationName", "hostName"];
 
 const monthlyFilters = Joi.object({
   month: Joi.number().integer().min(1).max(12).required(),
@@ -44,7 +45,7 @@ const monthlyFilters = Joi.object({
   ...optionalFilterFields,
   sortBy: Joi.string()
     .valid(...sortFields)
-    .default("startedAt"),
+    .default("scheduledAt"),
   sortOrder: Joi.string().valid("asc", "desc").default("desc"),
 });
 
@@ -55,7 +56,7 @@ const rangeFilters = Joi.object({
   ...optionalFilterFields,
   sortBy: Joi.string()
     .valid(...sortFields)
-    .default("startedAt"),
+    .default("scheduledAt"),
   sortOrder: Joi.string().valid("asc", "desc").default("desc"),
 })
   .custom((value, helpers) => {

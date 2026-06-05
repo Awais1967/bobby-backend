@@ -353,6 +353,7 @@ async function createMatch(payload, hostId) {
     defaultMatchPrice: location.defaultMatchPrice || 0,
     currency: location.currency || "usd",
     status: MATCH_STATUS.SETUP,
+    scheduledAt: game.scheduledDate || null,
     currentState: MATCH_CURRENT_STATE.SETUP,
     timerDurationSeconds: game.defaultQuestionTime || 60,
     billingStatus: BILLING_STATUS.NOT_STARTED,
@@ -750,7 +751,10 @@ async function getMatches(query) {
     startOfDay.setUTCHours(0, 0, 0, 0);
     const endOfDay = new Date(query.date);
     endOfDay.setUTCHours(23, 59, 59, 999);
-    filter.createdAt = { $gte: startOfDay, $lte: endOfDay };
+    filter.$or = [
+      { scheduledAt: { $gte: startOfDay, $lte: endOfDay } },
+      { scheduledAt: null, startedAt: { $gte: startOfDay, $lte: endOfDay } },
+    ];
   }
 
   const skip = (query.page - 1) * query.pageSize;

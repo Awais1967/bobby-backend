@@ -42,6 +42,32 @@ const adminSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    passwordResetOtpHash: {
+      type: String,
+      select: false,
+      default: "",
+    },
+    passwordResetOtpExpiresAt: {
+      type: Date,
+      select: false,
+      default: null,
+    },
+    passwordResetOtpAttempts: {
+      type: Number,
+      select: false,
+      min: 0,
+      default: 0,
+    },
+    passwordResetTokenHash: {
+      type: String,
+      select: false,
+      default: "",
+    },
+    passwordResetTokenExpiresAt: {
+      type: Date,
+      select: false,
+      default: null,
+    },
   },
   {
     timestamps: true,

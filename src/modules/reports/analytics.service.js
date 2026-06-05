@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 
+const { ANSWER_STATUS } = require("../../constants/answerStatus");
 const { BILLING_MODE, BILLING_STATUS } = require("../../constants/billingStatus");
 const { MATCH_STATUS } = require("../../constants/matchStatus");
 const { buildPaginationResponse, getPagination } = require("../../utils/pagination");
@@ -97,13 +98,18 @@ function getMatchEndedAt(match) {
   return match.closedAt || match.endedAt || null;
 }
 
-function sanitizeTeam(team) {
+function sanitizeTeam(team, responseCounts = null, totalQuestions = 0) {
+  const totalResponses = responseCounts?.totalResponses || 0;
   return {
     teamName: team.teamName,
     finalScore: team.score || 0,
     rank: team.rank,
     joinedAt: team.joinedAt,
     status: team.status,
+    totalResponses,
+    correctResponses: responseCounts?.correctResponses || 0,
+    incorrectResponses: responseCounts?.incorrectResponses || 0,
+    unansweredCount: Math.max(totalQuestions - totalResponses, 0),
   };
 }
 
@@ -187,7 +193,7 @@ async function getMatchReportDetail(matchId) {
     throw error;
   }
 
-  const [transaction, teams, scoreLogs, answerCounts] = await Promise.all([
+  const [transaction, teams, scoreLogs, answerCounts, teamAnswerCounts] = await Promise.all([
     Transaction.findOne({ matchDbId: match._id }).sort({ createdAt: -1 }).lean(),
     Team.find({ matchDbId: match._id })
       .select("teamName score rank joinedAt status")
@@ -205,7 +211,12 @@ async function getMatchReportDetail(matchId) {
       { $sort: { _id: 1 } },
     ]),
     Answer.aggregate([
-      { $match: { matchDbId: new mongoose.Types.ObjectId(match._id) } },
+      {
+        $match: {
+          matchDbId: new mongoose.Types.ObjectId(match._id),
+          status: ANSWER_STATUS.SUBMITTED,
+        },
+      },
       {
         $group: {
           _id: "$reviewStatus",
@@ -214,10 +225,32 @@ async function getMatchReportDetail(matchId) {
       },
       { $sort: { _id: 1 } },
     ]),
+    Answer.aggregate([
+      {
+        $match: {
+          matchDbId: new mongoose.Types.ObjectId(match._id),
+          status: ANSWER_STATUS.SUBMITTED,
+        },
+      },
+      {
+        $group: {
+          _id: "$teamId",
+          totalResponses: { $sum: 1 },
+          correctResponses: { $sum: { $cond: [{ $eq: ["$isCorrect", true] }, 1, 0] } },
+          incorrectResponses: { $sum: { $cond: [{ $eq: ["$isCorrect", false] }, 1, 0] } },
+        },
+      },
+    ]),
   ]);
 
+  const responseCountsByTeam = teamAnswerCounts.reduce(
+    (map, counts) => map.set(idToString(counts._id), counts),
+    new Map()
+  );
+  const mapTeam = (team) =>
+    sanitizeTeam(team, responseCountsByTeam.get(idToString(team._id)), match.totalQuestions || 0);
   const leaderboard = teams
-    .map(sanitizeTeam)
+    .map(mapTeam)
     .sort((a, b) => {
       if (a.rank && b.rank) return a.rank - b.rank;
       return b.finalScore - a.finalScore;
@@ -253,7 +286,7 @@ async function getMatchReportDetail(matchId) {
           receiptEmailDestinations: transaction.receiptEmailDestinations || [],
         }
       : null,
-    teams: teams.map(sanitizeTeam),
+    teams: teams.map(mapTeam),
     finalLeaderboard: leaderboard,
     scoreLogsSummary: scoreLogs.map((item) => ({
       actionType: item._id,

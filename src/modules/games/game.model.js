@@ -181,6 +181,11 @@ const gameSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    googleCalendarEventId: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",

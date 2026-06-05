@@ -85,6 +85,10 @@ const matchSchema = new mongoose.Schema(
       enum: Object.values(MATCH_STATUS),
       default: MATCH_STATUS.SETUP,
     },
+    scheduledAt: {
+      type: Date,
+      default: null,
+    },
     startedAt: {
       type: Date,
       default: null,
@@ -215,6 +219,7 @@ matchSchema.index({ hostId: 1, status: 1 });
 matchSchema.index({ locationId: 1, status: 1 });
 matchSchema.index({ gameId: 1 });
 matchSchema.index({ billingStatus: 1 });
+matchSchema.index({ scheduledAt: 1 });
 matchSchema.index({ createdAt: -1 });
 matchSchema.index({ matchId: "text", gameTitle: "text", locationName: "text", hostName: "text" });
 

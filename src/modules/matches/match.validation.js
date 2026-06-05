@@ -43,7 +43,7 @@ const getMatchesQueryValidation = Joi.object({
   date: Joi.date().iso().optional(),
   billingStatus: Joi.string().valid(...Object.values(BILLING_STATUS)).optional(),
   sortBy: Joi.string()
-    .valid("createdAt", "updatedAt", "startedAt", "closedAt", "endedAt", "matchId", "status")
+    .valid("createdAt", "updatedAt", "scheduledAt", "startedAt", "closedAt", "endedAt", "matchId", "status")
     .default("createdAt"),
   sortOrder: Joi.string().valid("asc", "desc").default("desc"),
 });

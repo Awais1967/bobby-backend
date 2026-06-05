@@ -3,6 +3,10 @@ const mongoose = require("mongoose");
 const Host = require("../hosts/host.model");
 const Location = require("../locations/location.model");
 const Game = require("./game.model");
+const {
+  deleteGameFromGoogleCalendar,
+  syncGameToGoogleCalendar,
+} = require("../../services/googleCalendar.service");
 
 const minGameRounds = 1;
 const maxGameRounds = 4;
@@ -133,6 +137,35 @@ async function hasMatchReference(gameId) {
   }
 }
 
+async function syncGameCalendarEvent(game) {
+  try {
+    const event = await syncGameToGoogleCalendar(game);
+    const nextEventId = event?.id || "";
+
+    if (nextEventId && game.googleCalendarEventId !== nextEventId) {
+      game.googleCalendarEventId = nextEventId;
+      await game.save();
+    } else if (!nextEventId && game.googleCalendarEventId) {
+      game.googleCalendarEventId = "";
+      await game.save();
+    }
+  } catch (error) {
+    console.warn(`Google Calendar sync skipped for game ${game._id}: ${error.message}`);
+  }
+}
+
+async function deleteGameCalendarEvent(game) {
+  try {
+    await deleteGameFromGoogleCalendar(game);
+    if (game.googleCalendarEventId) {
+      game.googleCalendarEventId = "";
+      await game.save();
+    }
+  } catch (error) {
+    console.warn(`Google Calendar delete skipped for game ${game._id}: ${error.message}`);
+  }
+}
+
 async function createGame(payload, adminId) {
   const finalStatus = payload.status || "draft";
   const rounds = payload.rounds || [];
@@ -152,6 +185,8 @@ async function createGame(payload, adminId) {
     assignedHostIds,
     createdBy: adminId,
   });
+
+  await syncGameCalendarEvent(game);
 
   return toGameResponse(game);
 }
@@ -257,6 +292,7 @@ async function updateGame(id, payload) {
   });
 
   await game.save();
+  await syncGameCalendarEvent(game);
 
   return toGameResponse(
     await game.populate([
@@ -288,6 +324,7 @@ async function updateGameStatus(id, status) {
 
   game.status = status;
   await game.save();
+  await syncGameCalendarEvent(game);
 
   return toGameResponse(
     await game.populate([
@@ -310,8 +347,10 @@ async function deleteGame(id) {
   if (isUsed) {
     game.status = "archived";
     await game.save();
+    await deleteGameCalendarEvent(game);
     return { archived: true, message: "Game template is in use by matches, archived instead of deleted." };
   } else {
+    await deleteGameCalendarEvent(game);
     await game.deleteOne();
     return { archived: false, message: "Game template deleted successfully." };
   }
@@ -331,6 +370,7 @@ async function duplicateGame(id, adminId) {
   delete gameObj.id;
   delete gameObj.createdAt;
   delete gameObj.updatedAt;
+  delete gameObj.googleCalendarEventId;
 
   const newGamePayload = {
     ...gameObj,

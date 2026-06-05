@@ -33,9 +33,15 @@ Players are represented by the `player` role constant, but they do not create ac
 ### Endpoints
 
 - `POST /api/auth/login`
+- `POST /api/auth/forgot-password`
+- `POST /api/auth/verify-otp`
+- `POST /api/auth/resend-otp`
+- `POST /api/auth/reset-password`
 - `GET /api/auth/me`
 - `POST /api/auth/logout`
 - `POST /api/auth/change-password`
+
+Password recovery supports Super Admin and Host accounts. OTPs and reset tokens are stored as hashes with short expiries. Configure `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USER`, `EMAIL_PASS`, and `EMAIL_FROM` for delivery. For local authenticated-flow testing without SMTP, set `PASSWORD_RESET_EXPOSE_OTP=true` only while `NODE_ENV` is not `production`; the forgot/resend response will then include `data.devOtp`.
 
 ### Seed First Super Admin
 
@@ -109,6 +115,8 @@ Question create and update requests support `multipart/form-data` so Super Admin
 ## Live Match Management
 
 Module 6 manages live match setup and host-paced lifecycle controls. Hosts create matches from an assigned active location and an available active/scheduled game template. Match setup generates a Match ID, Entry Code, join URL, and QR code data URL. Player join, answer submission, scoring, leaderboard updates, and Stripe charging are intentionally deferred.
+
+Matches copy the source game's `scheduledDate` into `scheduledAt` when created. `scheduledAt` is used for upcoming calendar placement, while `startedAt` remains the actual live start time.
 
 ### Endpoints
 
@@ -230,6 +238,19 @@ Module 12 gives Super Admins platform-wide operational reporting. Match reports 
 - `GET /api/reports/billing/export/excel`
 - `GET /api/reports/hosts`
 - `GET /api/reports/locations`
+
+Match report details include per-team `totalResponses`, `correctResponses`, `incorrectResponses`, and `unansweredCount`.
+
+## Calendar
+
+`GET /api/calendar/range` and `GET /api/calendar/day` accept `eventCategory=game|match` to filter the combined event response. Match calendar dates use `scheduledAt`, falling back to `startedAt` for older records without a schedule.
+
+## Authenticated Runtime Testing
+
+1. Configure `MONGODB_URI`, `JWT_SECRET`, and the frontend/backend URL variables in `.env`.
+2. Set `SUPER_ADMIN_NAME`, `SUPER_ADMIN_EMAIL`, and `SUPER_ADMIN_PASSWORD`.
+3. Run `npm run seed:admin`.
+4. Configure SMTP, or enable the development-only `PASSWORD_RESET_EXPOSE_OTP=true` switch.
 
 ## Project Structure
 

@@ -96,8 +96,8 @@ function buildCalendarMatchFilter(query = {}, { defaultToCompleted = true } = {}
 function buildCalendarDateCondition(start, end) {
   const range = { $gte: start, $lte: end };
   return [
+    { scheduledAt: range },
     { startedAt: range },
-    { startedAt: null, createdAt: range },
   ];
 }
 
@@ -159,6 +159,7 @@ function calendarGameQuery(query, start, end) {
 function pickMatchSort(sortBy, sortOrder) {
   const allowed = new Set([
     "startedAt",
+    "scheduledAt",
     "closedAt",
     "createdAt",
     "matchId",
@@ -166,7 +167,7 @@ function pickMatchSort(sortBy, sortOrder) {
     "locationName",
     "hostName",
   ]);
-  const safeSortBy = allowed.has(sortBy) ? sortBy : "startedAt";
+  const safeSortBy = allowed.has(sortBy) ? sortBy : "scheduledAt";
   const direction = sortOrder === "asc" ? 1 : -1;
   return { [safeSortBy]: direction, createdAt: -1 };
 }
@@ -175,17 +176,35 @@ function getEndedAt(match) {
   return match.closedAt || match.endedAt || null;
 }
 
+function getMatchCalendarDate(match) {
+  const startedStatuses = new Set([
+    MATCH_STATUS.LIVE,
+    MATCH_STATUS.INTERMISSION,
+    MATCH_STATUS.CLOSED,
+    MATCH_STATUS.COMPLETED,
+    MATCH_STATUS.CANCELLED,
+  ]);
+
+  if (match.startedAt && startedStatuses.has(match.status)) {
+    return match.startedAt;
+  }
+
+  return match.scheduledAt || match.startedAt;
+}
+
 function formatMatchEvent(match) {
   const endedAt = getEndedAt(match);
+  const calendarDate = getMatchCalendarDate(match);
 
   return {
     id: match.matchId,
     type: "match",
     dbId: idToString(match._id),
     title: match.gameTitle,
-    date: formatCalendarEventDate(match.startedAt || match.createdAt),
-    startTime: formatReportTime(match.startedAt),
+    date: formatCalendarEventDate(calendarDate),
+    startTime: formatReportTime(calendarDate),
     endTime: formatReportTime(endedAt),
+    scheduledAt: match.scheduledAt,
     startedAt: match.startedAt,
     closedAt: match.closedAt,
     endedAt,
@@ -320,13 +339,20 @@ async function fetchCalendarMatches(filter, query, options = {}) {
 
 async function getMonthlyCalendarMatches(query) {
   const range = buildMonthRange(query.month, query.year);
+  if (query.eventCategory === "game") {
+    return buildPaginationResponse([], 0, query.page, query.pageSize);
+  }
   return fetchCalendarMatches(range, query);
 }
 
 async function getCalendarMatchesByRange(query) {
   const range = buildDateRange(query.startDate, query.endDate);
-  const matches = await fetchCalendarMatches(range, query, { defaultToCompleted: false });
-  const games = await calendarGameQuery(query, range.start, range.end).lean();
+  const matches = query.eventCategory === "game"
+    ? buildPaginationResponse([], 0, query.page, query.pageSize)
+    : await fetchCalendarMatches(range, query, { defaultToCompleted: false });
+  const games = query.eventCategory === "match"
+    ? []
+    : await calendarGameQuery(query, range.start, range.end).lean();
 
   return {
     ...matches,
@@ -339,7 +365,9 @@ async function getCalendarDayMatches(query) {
   const filter = buildCalendarMatchFilter(query, { defaultToCompleted: false });
   mergeDateCondition(filter, start, end);
 
-  const matches = await Match.find(filter).sort({ startedAt: 1, createdAt: 1 }).lean();
+  const matches = query.eventCategory === "game"
+    ? []
+    : await Match.find(filter).sort({ scheduledAt: 1, startedAt: 1 }).lean();
   const matchEvents = matches.map(formatMatchEvent);
 
   const teamDataByMatch = new Map();
@@ -371,7 +399,7 @@ async function getCalendarDayMatches(query) {
     teams: teamDataByMatch.get(event.dbId) || [],
   }));
 
-  const games = await calendarGameQuery(query, start, end).lean();
+  const games = query.eventCategory === "match" ? [] : await calendarGameQuery(query, start, end).lean();
 
   return {
     date: formatCalendarEventDate(start),
@@ -403,7 +431,7 @@ async function getCalendarSummary(query) {
   mergeDateCondition(matchFilter, start, end);
   applySearchCondition(matchFilter, query.search);
 
-  const matches = await Match.find(matchFilter).lean();
+  const matches = query.eventCategory === "game" ? [] : await Match.find(matchFilter).lean();
   const matchIds = matches.map((m) => m._id);
 
   let chargedRevenue = 0;
@@ -428,7 +456,9 @@ async function getCalendarSummary(query) {
   });
 
   const buckets = buildSummaryBuckets(matches);
-  const upcomingGames = await Game.countDocuments(buildCalendarGameFilter(query, start, end));
+  const upcomingGames = query.eventCategory === "match"
+    ? 0
+    : await Game.countDocuments(buildCalendarGameFilter(query, start, end));
 
   return {
     period: buildPeriodResponse(start, end),
