@@ -17,6 +17,7 @@ const Game = require("../games/game.model");
 const Host = require("../hosts/host.model");
 const Location = require("../locations/location.model");
 const billingService = require("../billing/billing.service");
+const Question = require("../questions/question.model");
 const Match = require("./match.model");
 
 const ACTIVE_MATCH_STATUSES = [
@@ -73,10 +74,8 @@ function toPublicMatchResponse(match) {
     gameTitle: data.gameTitle,
     locationName: data.locationName,
     matchId: data.matchId,
-    entryCode: data.entryCode,
     qrCodeUrl: data.qrCodeUrl,
     qrCodeDataUrl: data.qrCodeDataUrl,
-    joinUrl: data.joinUrl,
     status: data.status,
     currentState: data.currentState,
   };
@@ -188,12 +187,9 @@ async function ensureGameAvailableForHost(gameId, hostId, locationId) {
     throw createHttpError("Game not found.", 404);
   }
 
-  const isActiveOrScheduled = ["active", "scheduled"].includes(game.status);
-  const assignedToHost = isIdInList(game.assignedHostIds || [], hostId);
-  const assignedToLocation = isIdInList(game.assignedLocationIds || [], locationId);
-  const available = game.isGlobal || assignedToHost || assignedToLocation;
+  const isPlayableStatus = game.status !== "archived";
 
-  if (!isActiveOrScheduled || !isGameDateAvailable(game) || !available) {
+  if (!isPlayableStatus || !isGameDateAvailable(game)) {
     throw createHttpError("This game is not available for this host or location.", 403);
   }
 
@@ -414,6 +410,67 @@ async function getMatchById(matchDbId, user) {
   }
 
   return toResponse(match);
+}
+
+function toHostQuestionResponse(question) {
+  if (!question) return null;
+
+  return {
+    id: question._id.toString(),
+    questionText: question.questionText,
+    category: question.category,
+    type: question.type,
+    difficulty: question.difficulty,
+    mediaType: question.mediaType,
+    imageUrl: question.imageUrl,
+    audioUrl: question.audioUrl,
+    mediaCaption: question.mediaCaption,
+    options: question.options || [],
+    correctAnswer: question.correctAnswer,
+    correctAnswers: question.correctAnswers || [],
+    orderingAnswer: question.orderingAnswer || [],
+    numericAnswer: question.numericAnswer,
+    numericTolerance: question.numericTolerance,
+    fiftyFiftyOptions: question.fiftyFiftyOptions || [],
+    songTitle: question.songTitle,
+    artistName: question.artistName,
+    estimatedTimeSeconds: question.estimatedTimeSeconds,
+    points: question.points,
+  };
+}
+
+async function getOwnedMatchQuestions(matchDbId, hostId) {
+  const match = await findOwnedMatch(matchDbId, hostId);
+  const game = await Game.findById(match.gameId).lean();
+
+  if (!game) {
+    throw createHttpError("Game not found.", 404);
+  }
+
+  const groups = getQuestionGroups(game);
+  const questionIds = groups.flatMap((round) => round.questionIds || []);
+  const questions = await Question.find({ _id: { $in: questionIds } }).lean();
+  const questionMap = new Map(questions.map((question) => [question._id.toString(), question]));
+
+  return {
+    matchId: match.matchId,
+    matchDbId: match._id.toString(),
+    gameId: game._id.toString(),
+    gameTitle: game.title,
+    rounds: groups.map((round, roundIndex) => ({
+      roundIndex,
+      roundNumber: round.roundNumber,
+      title: round.title,
+      type: round.type,
+      isFinalRound: Boolean(round.isFinalRound),
+      questions: (round.questionIds || [])
+        .map((questionId, questionIndex) => {
+          const question = toHostQuestionResponse(questionMap.get(questionId.toString()));
+          return question ? { roundIndex, questionIndex, ...question } : null;
+        })
+        .filter(Boolean),
+    })),
+  };
 }
 
 async function startMatch(matchDbId, hostId) {
@@ -776,6 +833,13 @@ async function getMatches(query) {
   };
 }
 
+async function getMyMatches(hostId, query) {
+  return getMatches({
+    ...query,
+    hostId,
+  });
+}
+
 async function getPublicMatchInfo(matchId) {
   const match = await Match.findOne({ matchId: matchId.toUpperCase() });
 
@@ -798,6 +862,8 @@ module.exports = {
   getMatchById,
   getMatches,
   getMyActiveMatch,
+  getMyMatches,
+  getOwnedMatchQuestions,
   getPublicMatchInfo,
   jumpToQuestion,
   openCurrentQuestion,

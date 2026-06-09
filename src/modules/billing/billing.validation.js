@@ -29,6 +29,14 @@ const cancelTransactionValidation = Joi.object({
   reason: Joi.string().trim().required(),
 });
 
+const clientIdParamValidation = Joi.object({
+  clientId: Joi.string().pattern(objectIdPattern).required(),
+});
+
+const saveClientPaymentMethodValidation = Joi.object({
+  paymentMethodId: Joi.string().trim().required(),
+});
+
 function validate(schema, payload) {
   const { error, value } = schema.validate(payload, {
     abortEarly: false,
@@ -46,8 +54,10 @@ function validate(schema, payload) {
 
 module.exports = {
   cancelTransactionValidation,
+  clientIdParamValidation,
   getTransactionsQueryValidation,
   markInvoicePaidValidation,
   retryTransactionValidation,
+  saveClientPaymentMethodValidation,
   validate,
 };

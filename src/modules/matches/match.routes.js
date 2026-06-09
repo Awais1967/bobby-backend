@@ -12,6 +12,7 @@ const router = express.Router();
 router.post("/", authMiddleware, requireRole(ROLES.HOST), matchController.createMatch);
 router.get("/", authMiddleware, requireRole(ROLES.SUPER_ADMIN), matchController.getMatches);
 router.get("/active", authMiddleware, requireRole(ROLES.HOST), matchController.getMyActiveMatch);
+router.get("/mine", authMiddleware, requireRole(ROLES.HOST), matchController.getMyMatches);
 router.get("/public/:matchId/state", leaderboardController.getPresentationState);
 router.get("/public/:matchId", matchController.getPublicMatchInfo);
 router.patch(
@@ -69,6 +70,7 @@ router.patch(
   scoringController.overrideTeamScore
 );
 router.get("/:id/score-logs", authMiddleware, requireRole(ROLES.HOST), scoringController.getScoreLogs);
+router.get("/:id/questions", authMiddleware, requireRole(ROLES.HOST), matchController.getOwnedMatchQuestions);
 router.get(
   "/:id/scores",
   authMiddleware,

@@ -244,6 +244,33 @@ async function getMatches(req, res, next) {
   }
 }
 
+async function getMyMatches(req, res, next) {
+  try {
+    const query = validate(getMatchesQueryValidation, req.query);
+    const data = await matchService.getMyMatches(req.user.id, query);
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getOwnedMatchQuestions(req, res, next) {
+  try {
+    const data = await matchService.getOwnedMatchQuestions(req.params.id, req.user.id);
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function getPublicMatchInfo(req, res, next) {
   try {
     const match = await matchService.getPublicMatchInfo(req.params.matchId);
@@ -372,6 +399,8 @@ module.exports = {
   getCurrentQuestionSubmissions,
   getAnswersByQuestion,
   getMyActiveMatch,
+  getMyMatches,
+  getOwnedMatchQuestions,
   getPublicMatchInfo,
   jumpToQuestion,
   openCurrentQuestion,

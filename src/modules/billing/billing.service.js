@@ -34,6 +34,59 @@ function toResponse(document) {
   return data;
 }
 
+function getPublishableKey() {
+  return process.env.STRIPE_PUBLISHABLE_KEY || "";
+}
+
+function ensureStripeConfigured() {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw createHttpError("STRIPE_SECRET_KEY is required for card billing.", 500);
+  }
+
+  if (!getPublishableKey()) {
+    throw createHttpError("STRIPE_PUBLISHABLE_KEY is required for card setup.", 500);
+  }
+}
+
+function getClientEmail(client) {
+  return client.billingContactEmail || client.clientEmail || client.contactEmail || "";
+}
+
+function getClientName(client) {
+  return client.billingContactName || client.clientName || client.name || "";
+}
+
+function summarizePaymentMethod(paymentMethod) {
+  const card = paymentMethod.card || {};
+  const brand = card.brand || "";
+  const last4 = card.last4 || "";
+
+  return {
+    cardBrand: brand,
+    cardExpMonth: card.exp_month || null,
+    cardExpYear: card.exp_year || null,
+    cardLast4: last4,
+    maskedPaymentMethod: brand && last4 ? `${brand} ending in ${last4}` : "",
+    stripePaymentMethodId: paymentMethod.id,
+  };
+}
+
+async function ensureClientStripeCustomer(client) {
+  if (client.stripeCustomerId) return client.stripeCustomerId;
+
+  const customer = await stripeService.createCustomer({
+    email: getClientEmail(client),
+    name: getClientName(client),
+    metadata: {
+      triviaGoatClientId: client._id.toString(),
+    },
+  });
+
+  client.stripeCustomerId = customer.id;
+  await client.save();
+  return customer.id;
+}
+
 async function loadMatchAndLocation(matchDbId) {
   ensureObjectId(matchDbId, "Match not found.");
 
@@ -46,10 +99,30 @@ async function loadMatchAndLocation(matchDbId) {
   return { location, match };
 }
 
-function resolveAmount(match, location) {
-  const amount = match.defaultMatchPrice || location.defaultMatchPrice || 0;
-  if (!amount || amount <= 0) throw createHttpError("No default match price found.", 400);
-  return amount;
+function resolveBillingTotals(match, location) {
+  const subtotalAmount = match.defaultMatchPrice || location.defaultMatchPrice || 0;
+  if (!subtotalAmount || subtotalAmount <= 0) throw createHttpError("No default match price found.", 400);
+
+  let discountAmount = 0;
+  if (location.pricingDiscount && location.discountValue > 0) {
+    if (location.discountType === "percentage") {
+      discountAmount = Math.round((subtotalAmount * location.discountValue) / 100);
+    } else if (location.discountType === "fixed") {
+      discountAmount = Math.round(location.discountValue);
+    }
+  }
+
+  discountAmount = Math.min(discountAmount, subtotalAmount);
+  const taxAmount = 0;
+  const totalAmount = Math.max(subtotalAmount - discountAmount + taxAmount, 0);
+
+  return {
+    amount: totalAmount,
+    discountAmount,
+    subtotalAmount,
+    taxAmount,
+    totalAmount,
+  };
 }
 
 function getReceiptDestinations(location, match) {
@@ -81,7 +154,7 @@ async function createTransactionFromMatch(match, billingStatus, location = null)
   const resolvedLocation = location || (await Location.findById(match.locationId));
   if (!resolvedLocation) throw createHttpError("Location not found.", 404);
 
-  const amount = resolveAmount(match, resolvedLocation);
+  const totals = resolveBillingTotals(match, resolvedLocation);
   const existing = await Transaction.findOne({ matchDbId: match._id });
 
   const payload = {
@@ -95,7 +168,11 @@ async function createTransactionFromMatch(match, billingStatus, location = null)
     hostName: match.hostName,
     billingMode: match.billingMode,
     billingStatus,
-    amount,
+    amount: totals.amount,
+    discountAmount: totals.discountAmount,
+    subtotalAmount: totals.subtotalAmount,
+    taxAmount: totals.taxAmount,
+    totalAmount: totals.totalAmount,
     currency: match.currency || resolvedLocation.currency || "usd",
     stripeCustomerId: resolvedLocation.stripeCustomerId || "",
     stripePaymentMethodId: resolvedLocation.stripePaymentMethodId || "",
@@ -136,7 +213,7 @@ async function chargeClosedMatch(matchDbId, idempotencyKey = null) {
     return { transaction: existingCharged, alreadyCharged: true };
   }
 
-  const amount = resolveAmount(match, location);
+  const { amount } = resolveBillingTotals(match, location);
   if (!location.stripeCustomerId) throw createHttpError("Stripe customer is missing for this location.", 400);
   if (!location.stripePaymentMethodId) throw createHttpError("Stripe payment method is missing for this location.", 400);
 
@@ -255,6 +332,70 @@ async function getTransactions(query) {
   };
 }
 
+async function createClientSetupIntent(clientId) {
+  ensureObjectId(clientId, "Client not found.");
+  ensureStripeConfigured();
+
+  const client = await Location.findById(clientId);
+  if (!client) throw createHttpError("Client not found.", 404);
+
+  const customerId = await ensureClientStripeCustomer(client);
+  const setupIntent = await stripeService.createSetupIntent({
+    customer: customerId,
+    metadata: {
+      triviaGoatClientId: client._id.toString(),
+      triviaGoatClientName: getClientName(client),
+    },
+  });
+
+  return {
+    clientId: client._id.toString(),
+    clientSecret: setupIntent.client_secret,
+    customerId,
+    publishableKey: getPublishableKey(),
+    setupIntentId: setupIntent.id,
+  };
+}
+
+async function saveClientPaymentMethod(clientId, payload) {
+  ensureObjectId(clientId, "Client not found.");
+  ensureStripeConfigured();
+
+  const client = await Location.findById(clientId);
+  if (!client) throw createHttpError("Client not found.", 404);
+
+  const customerId = await ensureClientStripeCustomer(client);
+  let paymentMethod = await stripeService.retrievePaymentMethod(payload.paymentMethodId);
+  const attachedCustomerId = typeof paymentMethod.customer === "string" ? paymentMethod.customer : paymentMethod.customer?.id;
+
+  if (attachedCustomerId && attachedCustomerId !== customerId) {
+    throw createHttpError("Stripe payment method belongs to a different customer.", 400);
+  }
+
+  if (!attachedCustomerId) {
+    paymentMethod = await stripeService.attachPaymentMethod(payload.paymentMethodId, customerId);
+  }
+
+  await stripeService.setDefaultPaymentMethod(customerId, payload.paymentMethodId);
+  const paymentSummary = summarizePaymentMethod(paymentMethod);
+
+  client.billingMethod = "card";
+  client.billingMode = BILLING_MODE.AUTO_CHARGE;
+  client.stripeCustomerId = customerId;
+  client.stripePaymentMethodId = payload.paymentMethodId;
+  client.cardBrand = paymentSummary.cardBrand;
+  client.cardLast4 = paymentSummary.cardLast4;
+  client.cardExpMonth = paymentSummary.cardExpMonth;
+  client.cardExpYear = paymentSummary.cardExpYear;
+  client.maskedPaymentMethod = paymentSummary.maskedPaymentMethod;
+  await client.save();
+
+  return {
+    client: toResponse(client),
+    paymentMethod: paymentSummary,
+  };
+}
+
 async function getTransactionById(id) {
   ensureObjectId(id, "Transaction not found.");
   const transaction = await Transaction.findById(id);
@@ -346,6 +487,7 @@ async function getBillingSummary() {
 module.exports = {
   cancelTransaction,
   chargeClosedMatch,
+  createClientSetupIntent,
   createTransactionFromMatch,
   getBillingSummary,
   getTransactionById,
@@ -354,5 +496,6 @@ module.exports = {
   markMatchInvoiceLater,
   processClosedMatchBilling,
   retryTransaction,
+  saveClientPaymentMethod,
   sendMatchReceipt: receiptService.sendMatchReceipt,
 };

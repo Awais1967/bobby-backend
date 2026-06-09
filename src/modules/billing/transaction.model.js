@@ -60,6 +60,26 @@ const transactionSchema = new mongoose.Schema(
       min: 0,
       required: true,
     },
+    subtotalAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    discountAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    taxAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    totalAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
     currency: {
       type: String,
       lowercase: true,

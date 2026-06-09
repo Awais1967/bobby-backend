@@ -26,11 +26,11 @@ router.get("/", authMiddleware, requireSuperAdmin, questionController.getQuestio
 // Bulk questions import (Registered BEFORE /:id to prevent parameter collision)
 router.post("/bulk", authMiddleware, requireSuperAdmin, questionController.bulkCreateQuestions);
 
-// Host-safe question detail (Registered BEFORE /:id, accessible by Host & Super Admin)
+// Admin-only legacy detail route. Hosts must use /matches/:id/questions so ownership is verified.
 router.get(
   "/:id/host-safe",
   authMiddleware,
-  requireRole(ROLES.HOST, ROLES.SUPER_ADMIN),
+  requireSuperAdmin,
   questionController.getHostSafeQuestion
 );
 

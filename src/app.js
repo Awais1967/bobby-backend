@@ -10,7 +10,12 @@ const routes = require("./routes");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
 
 const app = express();
-const allowedCorsOrigins = (process.env.CORS_ORIGIN || process.env.CLIENT_URL || "http://localhost:5173")
+const defaultCorsOrigins = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
+];
+const allowedCorsOrigins = (process.env.CORS_ORIGIN || process.env.CLIENT_URL || defaultCorsOrigins.join(","))
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);

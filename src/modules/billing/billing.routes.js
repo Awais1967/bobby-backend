@@ -13,6 +13,8 @@ const requireSuperAdmin = requireRole(ROLES.SUPER_ADMIN, {
 
 router.post("/webhook", billingController.handleStripeWebhook);
 router.get("/summary", authMiddleware, requireSuperAdmin, billingController.getBillingSummary);
+router.post("/clients/:clientId/setup-intent", authMiddleware, requireSuperAdmin, billingController.createClientSetupIntent);
+router.post("/clients/:clientId/payment-method", authMiddleware, requireSuperAdmin, billingController.saveClientPaymentMethod);
 router.get("/transactions", authMiddleware, requireSuperAdmin, billingController.getTransactions);
 router.get("/transactions/:id", authMiddleware, requireSuperAdmin, billingController.getTransactionById);
 router.post("/transactions/:id/retry", authMiddleware, requireSuperAdmin, billingController.retryTransaction);

@@ -3,9 +3,11 @@ const stripeService = require("./stripe.service");
 const stripeWebhookService = require("./stripeWebhook.service");
 const {
   cancelTransactionValidation,
+  clientIdParamValidation,
   getTransactionsQueryValidation,
   markInvoicePaidValidation,
   retryTransactionValidation,
+  saveClientPaymentMethodValidation,
   validate,
 } = require("./billing.validation");
 
@@ -67,6 +69,31 @@ async function getBillingSummary(req, res, next) {
   }
 }
 
+async function createClientSetupIntent(req, res, next) {
+  try {
+    const params = validate(clientIdParamValidation, req.params);
+    const data = await billingService.createClientSetupIntent(params.clientId);
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function saveClientPaymentMethod(req, res, next) {
+  try {
+    const params = validate(clientIdParamValidation, req.params);
+    const payload = validate(saveClientPaymentMethodValidation, req.body || {});
+    const data = await billingService.saveClientPaymentMethod(params.clientId, payload);
+    return res.status(200).json({
+      success: true,
+      message: "Client card saved for automatic billing.",
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function handleStripeWebhook(req, res, next) {
   try {
     const signature = req.headers["stripe-signature"];
@@ -80,10 +107,12 @@ async function handleStripeWebhook(req, res, next) {
 
 module.exports = {
   cancelTransaction,
+  createClientSetupIntent,
   getBillingSummary,
   getTransactionById,
   getTransactions,
   handleStripeWebhook,
   markInvoicePaid,
   retryTransaction,
+  saveClientPaymentMethod,
 };

@@ -85,7 +85,6 @@ function removeRawCardFields(payload) {
   delete data.cvvCode;
   delete data.cardCvv;
   delete data.stripeCustomerId;
-  delete data.stripePaymentMethodId;
   return data;
 }
 
@@ -152,6 +151,12 @@ function toClientResponse(client, options = {}) {
       lastLoginAt: data.lastLoginAt,
       status: data.status,
       logoUrl: data.logoUrl,
+      cardBrand: data.cardBrand,
+      cardExpMonth: data.cardExpMonth,
+      cardExpYear: data.cardExpYear,
+      cardLast4: data.cardLast4,
+      defaultMatchPrice: data.defaultMatchPrice,
+      maskedPaymentMethod: data.maskedPaymentMethod,
     };
   }
 
@@ -245,7 +250,20 @@ async function ensureStripePaymentSetup(payload, client = null) {
     },
   });
 
-  return { stripeCustomerId: customerId };
+  const paymentMethod = await stripe.paymentMethods.retrieve(payload.stripePaymentMethodId);
+  const card = paymentMethod.card || {};
+  const cardBrand = card.brand || payload.cardBrand || "";
+  const cardLast4 = card.last4 || payload.cardLast4 || "";
+
+  return {
+    cardBrand,
+    cardExpMonth: card.exp_month || payload.cardExpMonth || null,
+    cardExpYear: card.exp_year || payload.cardExpYear || null,
+    cardLast4,
+    maskedPaymentMethod: cardBrand && cardLast4 ? `${cardBrand} ending in ${cardLast4}` : payload.maskedPaymentMethod || "",
+    stripeCustomerId: customerId,
+    stripePaymentMethodId: payload.stripePaymentMethodId,
+  };
 }
 
 function buildClientFilter(query) {

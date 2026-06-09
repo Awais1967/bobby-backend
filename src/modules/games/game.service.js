@@ -386,10 +386,12 @@ async function duplicateGame(id, adminId) {
 async function getAvailableGamesForHost(hostId, query) {
   const targetDate = query.date ? new Date(query.date) : new Date();
 
-  // Basic filter for scheduling and status
   const filter = {
-    status: { $in: ["active", "scheduled"] },
-    $and: [
+    status: { $ne: "archived" },
+  };
+
+  if (query.date) {
+    filter.$and = [
       {
         $or: [
           { availableFrom: { $exists: false } },
@@ -404,28 +406,21 @@ async function getAvailableGamesForHost(hostId, query) {
           { availableTo: { $gte: targetDate } },
         ],
       },
-    ],
-  };
-
-  const orConditions = [{ isGlobal: true }, { assignedHostIds: hostId }];
+    ];
+  }
 
   if (query.locationId) {
-    // Check if the host is assigned to this location
     const host = await Host.findOne({ _id: hostId, assignedLocationIds: query.locationId });
     if (!host) {
       throw createHttpError("You are not assigned to this location.", 403);
     }
-    orConditions.push({ assignedLocationIds: query.locationId });
   } else {
-    // Check if any of host's assigned locations match
     const host = await Host.findById(hostId).select("assignedLocationIds");
     const assignedLocationIds = host ? host.assignedLocationIds || [] : [];
-    if (assignedLocationIds.length > 0) {
-      orConditions.push({ assignedLocationIds: { $in: assignedLocationIds } });
+    if (assignedLocationIds.length === 0) {
+      throw createHttpError("You are not assigned to any location.", 403);
     }
   }
-
-  filter.$or = orConditions;
 
   const skip = (query.page - 1) * query.pageSize;
 
