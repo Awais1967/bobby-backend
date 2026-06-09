@@ -285,14 +285,24 @@ async function deleteLocation(id) {
 }
 
 async function getHostAssignedLocations(hostId, query) {
+  const host = await Host.findById(hostId).select("assignedLocationIds");
+  const hostAssignedLocationIds = host?.assignedLocationIds || [];
+  const assignmentFilters = [{ assignedHostIds: hostId }];
+
+  if (hostAssignedLocationIds.length > 0) {
+    assignmentFilters.push({ _id: { $in: hostAssignedLocationIds } });
+  }
+
   const filter = {
-    assignedHostIds: hostId,
+    $and: [{ $or: assignmentFilters }],
     status: query.status || "active",
   };
 
   if (query.search) {
     const searchRegex = new RegExp(escapeRegex(query.search), "i");
-    filter.$or = [{ name: searchRegex }, { clientName: searchRegex }, { city: searchRegex }];
+    filter.$and.push({
+      $or: [{ name: searchRegex }, { clientName: searchRegex }, { city: searchRegex }],
+    });
   }
 
   const skip = (query.page - 1) * query.pageSize;

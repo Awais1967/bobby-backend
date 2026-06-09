@@ -303,7 +303,9 @@ function getAutoGradeStatus(question, answer) {
     return REVIEW_STATUS.CORRECT;
   }
 
-  if (question.type === "open_text" && isOpenTextExactCorrect(question, answer)) {
+  const exactTextTypes = ["audio", "image", "name_that_tune", "open_text", "speed"];
+
+  if (exactTextTypes.includes(question.type) && isOpenTextExactCorrect(question, answer)) {
     return REVIEW_STATUS.CORRECT;
   }
 
@@ -311,7 +313,7 @@ function getAutoGradeStatus(question, answer) {
     return REVIEW_STATUS.CORRECT;
   }
 
-  if (["multiple_choice", "fifty_fifty", "ordering", "open_text", "numeric_estimate"].includes(question.type)) {
+  if (["multiple_choice", "fifty_fifty", "ordering", "open_text", "numeric_estimate", ...exactTextTypes].includes(question.type)) {
     return REVIEW_STATUS.INCORRECT;
   }
 
@@ -356,6 +358,19 @@ async function autoGradeQuestion(matchDbId, questionId, hostId) {
     gradedCount,
     pendingCount,
   };
+}
+
+async function autoReviewSubmittedAnswer(match, answer, team, question) {
+  const reviewStatus = getAutoGradeStatus(question, answer);
+
+  if (reviewStatus === REVIEW_STATUS.PENDING) {
+    return null;
+  }
+
+  return applyAnswerReview(match, answer, team, question, match.hostId, {
+    reviewStatus,
+    note: "Auto-graded on submit",
+  });
 }
 
 async function applyManualScoreChange(matchDbId, teamId, hostId, payload, actionType, pointsChange) {
@@ -504,6 +519,7 @@ async function getMatchScores(matchDbId, user) {
 module.exports = {
   addTeamScore,
   autoGradeQuestion,
+  autoReviewSubmittedAnswer,
   bulkReviewAnswers,
   createScoreLog,
   deductTeamScore,

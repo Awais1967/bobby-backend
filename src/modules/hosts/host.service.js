@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 
 const { MATCH_STATUS } = require("../../constants/matchStatus");
+const Location = require("../locations/location.model");
 const Match = require("../matches/match.model");
 const Host = require("./host.model");
 
@@ -51,6 +52,27 @@ async function ensureUniqueHostEmail(email) {
   }
 }
 
+async function syncLocationsForHost(hostId, previousLocationIds = [], nextLocationIds = []) {
+  const hostObjectId = new mongoose.Types.ObjectId(hostId.toString());
+  const previousIds = previousLocationIds.map((id) => id.toString());
+  const nextIds = nextLocationIds.map((id) => id.toString());
+  const locationsToRemove = previousIds.filter((id) => !nextIds.includes(id));
+
+  if (locationsToRemove.length > 0) {
+    await Location.updateMany(
+      { _id: { $in: locationsToRemove } },
+      { $pull: { assignedHostIds: hostObjectId } }
+    );
+  }
+
+  if (nextIds.length > 0) {
+    await Location.updateMany(
+      { _id: { $in: nextIds } },
+      { $addToSet: { assignedHostIds: hostObjectId } }
+    );
+  }
+}
+
 async function createHost(payload) {
   await ensureUniqueHostEmail(payload.email);
 
@@ -58,6 +80,7 @@ async function createHost(payload) {
     ...payload,
     email: payload.email.toLowerCase(),
   });
+  await syncLocationsForHost(host._id, [], host.assignedLocationIds || []);
 
   return toHostResponse(host);
 }
@@ -136,6 +159,11 @@ async function updateHost(id, payload) {
   }
 
   const allowedFields = ["name", "phone", "status", "assignedLocationIds"];
+  const previousLocationIds = host.assignedLocationIds || [];
+  const shouldSyncLocations = Object.prototype.hasOwnProperty.call(
+    payload,
+    "assignedLocationIds"
+  );
 
   allowedFields.forEach((field) => {
     if (Object.prototype.hasOwnProperty.call(payload, field)) {
@@ -144,6 +172,9 @@ async function updateHost(id, payload) {
   });
 
   await host.save();
+  if (shouldSyncLocations) {
+    await syncLocationsForHost(host._id, previousLocationIds, host.assignedLocationIds || []);
+  }
 
   return toHostResponse(host);
 }
@@ -276,6 +307,7 @@ async function deleteHost(id, adminId) {
     };
   }
 
+  await syncLocationsForHost(host._id, host.assignedLocationIds || [], []);
   await host.deleteOne();
 
   return {

@@ -83,7 +83,7 @@ function toPublicMatchResponse(match) {
 
 function buildJoinUrl(matchId, entryCode) {
   const baseUrl = (process.env.CLIENT_URL || "http://localhost:3000").replace(/\/$/, "");
-  return `${baseUrl}/join/${matchId}?code=${entryCode}`;
+  return `${baseUrl}/join?gameCode=${matchId || entryCode}`;
 }
 
 async function generateUniqueMatchId() {
@@ -330,7 +330,7 @@ async function createMatch(payload, hostId) {
   }
 
   const matchId = await generateUniqueMatchId();
-  const entryCode = await generateUniqueEntryCode();
+  const entryCode = matchId;
   const joinUrl = buildJoinUrl(matchId, entryCode);
   const qrCodeDataUrl = await generateQrCode(joinUrl);
 

@@ -16,6 +16,13 @@ const roundSchema = Joi.object({
   isFinalRound: Joi.boolean().default(false),
 });
 
+const finalRoundSchema = roundSchema.keys({
+  questionIds: Joi.array().items(objectId).max(1).default([]).messages({
+    "array.max": "Final round can have only one question.",
+  }),
+  isFinalRound: Joi.boolean().valid(true).default(true),
+});
+
 const intermissionSchema = Joi.object({
   afterRound: Joi.number().integer().required(),
   title: Joi.string().trim().required(),
@@ -42,7 +49,7 @@ const baseGameFields = {
     "array.max": "Game can have a maximum of 4 quarters.",
   }),
   intermissions: Joi.array().items(intermissionSchema).default([]),
-  finalRound: roundSchema.allow(null).default(null),
+  finalRound: finalRoundSchema.allow(null).default(null),
   defaultQuestionTime: Joi.number().integer().min(0).default(60),
   allowFlexibleRounds: Joi.boolean().default(true),
   coverImageUrl: Joi.string().trim().allow("").default(""),
@@ -93,7 +100,7 @@ const updateGameValidation = Joi.object({
     "array.max": "Game can have a maximum of 4 quarters.",
   }),
   intermissions: Joi.array().items(intermissionSchema).optional(),
-  finalRound: roundSchema.allow(null).optional(),
+  finalRound: finalRoundSchema.allow(null).optional(),
   defaultQuestionTime: Joi.number().integer().min(0).optional(),
   allowFlexibleRounds: Joi.boolean().optional(),
   coverImageUrl: Joi.string().trim().allow("").optional(),

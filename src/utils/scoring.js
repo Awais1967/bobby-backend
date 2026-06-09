@@ -26,7 +26,7 @@ function isOrderingCorrect(question, answer) {
 }
 
 function isOpenTextExactCorrect(question, answer) {
-  const submitted = normalizeAnswer(answer.answerText);
+  const submitted = normalizeAnswer(answer.answerText || answer.selectedOption);
   const possibleAnswers = [
     question.correctAnswer,
     ...(Array.isArray(question.correctAnswers) ? question.correctAnswers : []),

@@ -29,6 +29,25 @@ const cancelTransactionValidation = Joi.object({
   reason: Joi.string().trim().required(),
 });
 
+const createRefundValidation = Joi.object({
+  amount: Joi.number().integer().min(1).optional(),
+  reason: Joi.string().valid("duplicate", "fraudulent", "requested_by_customer", "").default("requested_by_customer"),
+  note: Joi.string().trim().allow("").default(""),
+});
+
+const getRefundsQueryValidation = Joi.object({
+  page: Joi.number().integer().min(1).default(1),
+  pageSize: Joi.number().integer().min(1).max(100).default(10),
+  status: Joi.string().valid("pending", "requires_action", "succeeded", "failed", "canceled").optional(),
+  transactionId: Joi.string().pattern(objectIdPattern).optional(),
+  matchId: Joi.string().trim().uppercase().optional(),
+  locationId: Joi.string().pattern(objectIdPattern).optional(),
+  startDate: Joi.date().iso().optional(),
+  endDate: Joi.date().iso().optional(),
+  sortBy: Joi.string().valid("createdAt", "updatedAt", "requestedAt", "processedAt", "amount").default("createdAt"),
+  sortOrder: Joi.string().valid("asc", "desc").default("desc"),
+});
+
 const clientIdParamValidation = Joi.object({
   clientId: Joi.string().pattern(objectIdPattern).required(),
 });
@@ -55,6 +74,8 @@ function validate(schema, payload) {
 module.exports = {
   cancelTransactionValidation,
   clientIdParamValidation,
+  createRefundValidation,
+  getRefundsQueryValidation,
   getTransactionsQueryValidation,
   markInvoicePaidValidation,
   retryTransactionValidation,

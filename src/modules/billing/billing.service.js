@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const { BILLING_MODE, BILLING_STATUS } = require("../../constants/billingStatus");
 const Match = require("../matches/match.model");
 const Location = require("../locations/location.model");
+const Refund = require("./refund.model");
 const Transaction = require("./transaction.model");
 const receiptService = require("./receipt.service");
 const stripeService = require("./stripe.service");
@@ -34,6 +35,15 @@ function toResponse(document) {
   return data;
 }
 
+function getRefundStatus(stripeRefund) {
+  if (!stripeRefund || !stripeRefund.status) return "pending";
+  if (stripeRefund.status === "requires_action") return "requires_action";
+  if (stripeRefund.status === "succeeded") return "succeeded";
+  if (stripeRefund.status === "failed") return "failed";
+  if (stripeRefund.status === "canceled") return "canceled";
+  return "pending";
+}
+
 function getPublishableKey() {
   return process.env.STRIPE_PUBLISHABLE_KEY || "";
 }
@@ -45,6 +55,12 @@ function ensureStripeConfigured() {
 
   if (!getPublishableKey()) {
     throw createHttpError("STRIPE_PUBLISHABLE_KEY is required for card setup.", 500);
+  }
+}
+
+function ensureStripeSecretConfigured() {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw createHttpError("STRIPE_SECRET_KEY is required for Stripe billing.", 500);
   }
 }
 
@@ -332,6 +348,170 @@ async function getTransactions(query) {
   };
 }
 
+function buildRefundFilter(query) {
+  const filter = {};
+  if (query.status) filter.status = query.status;
+  if (query.transactionId) filter.transactionId = query.transactionId;
+  if (query.matchId) filter.matchId = query.matchId;
+  if (query.locationId) filter.locationId = query.locationId;
+  if (query.startDate || query.endDate) {
+    filter.createdAt = {};
+    if (query.startDate) filter.createdAt.$gte = new Date(query.startDate);
+    if (query.endDate) filter.createdAt.$lte = new Date(query.endDate);
+  }
+  return filter;
+}
+
+async function getRefunds(query) {
+  const filter = buildRefundFilter(query);
+  const skip = (query.page - 1) * query.pageSize;
+  const sortDirection = query.sortOrder === "asc" ? 1 : -1;
+  const [items, total] = await Promise.all([
+    Refund.find(filter).sort({ [query.sortBy]: sortDirection }).skip(skip).limit(query.pageSize),
+    Refund.countDocuments(filter),
+  ]);
+
+  return {
+    items: items.map(toResponse),
+    total,
+    page: query.page,
+    pageSize: query.pageSize,
+  };
+}
+
+async function getRefundById(id) {
+  ensureObjectId(id, "Refund not found.");
+  const refund = await Refund.findById(id);
+  if (!refund) throw createHttpError("Refund not found.", 404);
+  return toResponse(refund);
+}
+
+async function applyRefundTotals(transaction) {
+  const succeededRefunds = await Refund.find({
+    transactionId: transaction._id,
+    status: "succeeded",
+  }).select("amount stripeRefundId");
+
+  const refundedAmount = succeededRefunds.reduce((sum, refund) => sum + refund.amount, 0);
+  transaction.refundedAmount = Math.min(refundedAmount, transaction.amount);
+  transaction.stripeRefundIds = succeededRefunds.map((refund) => refund.stripeRefundId).filter(Boolean);
+
+  if (transaction.refundedAmount >= transaction.amount) {
+    transaction.billingStatus = BILLING_STATUS.REFUNDED;
+    transaction.refundedAt = transaction.refundedAt || new Date();
+  } else if (transaction.refundedAmount > 0) {
+    transaction.billingStatus = BILLING_STATUS.PARTIALLY_REFUNDED;
+    transaction.refundedAt = transaction.refundedAt || new Date();
+  } else {
+    transaction.billingStatus = BILLING_STATUS.CHARGED;
+    transaction.refundedAt = null;
+  }
+
+  await transaction.save();
+
+  await Match.findByIdAndUpdate(transaction.matchDbId, {
+    billingStatus: transaction.billingStatus,
+    chargedAmount: Math.max(transaction.amount - transaction.refundedAmount, 0),
+    stripePaymentIntentId: transaction.stripePaymentIntentId,
+  });
+
+  return transaction;
+}
+
+async function createRefund(transactionId, payload, adminId) {
+  ensureObjectId(transactionId, "Transaction not found.");
+  ensureStripeSecretConfigured();
+
+  const transaction = await Transaction.findById(transactionId);
+  if (!transaction) throw createHttpError("Transaction not found.", 404);
+
+  if (![BILLING_STATUS.CHARGED, BILLING_STATUS.PARTIALLY_REFUNDED].includes(transaction.billingStatus)) {
+    throw createHttpError("Only charged transactions can be refunded.", 400);
+  }
+
+  if (!transaction.stripePaymentIntentId && !transaction.stripeChargeId) {
+    throw createHttpError("Stripe payment reference is missing for this transaction.", 400);
+  }
+
+  const currentRefundedAmount = transaction.refundedAmount || 0;
+  const remainingAmount = Math.max(transaction.amount - currentRefundedAmount, 0);
+  if (remainingAmount <= 0) throw createHttpError("Transaction is already fully refunded.", 400);
+
+  const refundAmount = payload.amount || remainingAmount;
+  if (refundAmount > remainingAmount) {
+    throw createHttpError("Refund amount exceeds remaining refundable amount.", 400);
+  }
+
+  const stripeRefund = await stripeService.createRefund(
+    {
+      amount: refundAmount,
+      charge: transaction.stripeChargeId,
+      metadata: {
+        matchDbId: transaction.matchDbId.toString(),
+        matchId: transaction.matchId,
+        transactionId: transaction._id.toString(),
+      },
+      paymentIntent: transaction.stripePaymentIntentId,
+      reason: payload.reason,
+    },
+    `transaction-refund-${transaction._id}-${Date.now()}`
+  );
+  const refundStatus = getRefundStatus(stripeRefund);
+
+  const refund = await Refund.create({
+    amount: stripeRefund.amount || refundAmount,
+    currency: stripeRefund.currency || transaction.currency,
+    failureReason: stripeRefund.failure_reason || "",
+    locationId: transaction.locationId,
+    locationName: transaction.locationName,
+    matchDbId: transaction.matchDbId,
+    matchId: transaction.matchId,
+    note: payload.note || "",
+    processedAt: refundStatus === "succeeded" ? new Date() : null,
+    reason: payload.reason || "",
+    requestedBy: adminId,
+    status: refundStatus,
+    stripeChargeId: stripeRefund.charge || transaction.stripeChargeId,
+    stripePaymentIntentId: stripeRefund.payment_intent || transaction.stripePaymentIntentId,
+    stripeRefundId: stripeRefund.id,
+    transactionId: transaction._id,
+  });
+
+  if (refund.status === "succeeded") {
+    await applyRefundTotals(transaction);
+  } else {
+    await transaction.save();
+  }
+
+  return {
+    refund: toResponse(refund),
+    transaction: toResponse(transaction),
+  };
+}
+
+async function cancelRefund(refundId) {
+  ensureObjectId(refundId, "Refund not found.");
+  ensureStripeSecretConfigured();
+
+  const refund = await Refund.findById(refundId);
+  if (!refund) throw createHttpError("Refund not found.", 404);
+  if (!refund.stripeRefundId) throw createHttpError("Stripe refund reference is missing.", 400);
+  if (refund.status !== "requires_action") {
+    throw createHttpError("Only refunds requiring action can be cancelled.", 400);
+  }
+
+  const stripeRefund = await stripeService.cancelRefund(refund.stripeRefundId);
+  refund.status = getRefundStatus(stripeRefund);
+  refund.cancelledAt = refund.status === "canceled" ? new Date() : refund.cancelledAt;
+  refund.failureReason = stripeRefund.failure_reason || "";
+  await refund.save();
+
+  const transaction = await Transaction.findById(refund.transactionId);
+  if (transaction) await applyRefundTotals(transaction);
+
+  return toResponse(refund);
+}
+
 async function createClientSetupIntent(clientId) {
   ensureObjectId(clientId, "Client not found.");
   ensureStripeConfigured();
@@ -438,7 +618,7 @@ async function cancelTransaction(transactionId, payload) {
   ensureObjectId(transactionId, "Transaction not found.");
   const transaction = await Transaction.findById(transactionId);
   if (!transaction) throw createHttpError("Transaction not found.", 404);
-  if (transaction.billingStatus === BILLING_STATUS.CHARGED) {
+  if ([BILLING_STATUS.CHARGED, BILLING_STATUS.PARTIALLY_REFUNDED].includes(transaction.billingStatus)) {
     throw createHttpError("Successfully charged payments cannot be cancelled without refund flow.", 400);
   }
 
@@ -471,14 +651,17 @@ async function getBillingSummary() {
     if (transaction.billingMode === BILLING_MODE.AUTO_CHARGE) summary.autoChargeCount += 1;
     if (transaction.billingMode === BILLING_MODE.INVOICE_LATER) summary.invoiceLaterCount += 1;
     if (transaction.billingStatus === BILLING_STATUS.CHARGED) summary.totalCharged += transaction.amount;
+    if (transaction.billingStatus === BILLING_STATUS.PARTIALLY_REFUNDED) summary.totalCharged += Math.max(transaction.amount - (transaction.refundedAmount || 0), 0);
     if (transaction.billingStatus === BILLING_STATUS.UNPAID || transaction.billingStatus === BILLING_STATUS.INVOICED) summary.totalUnpaid += transaction.amount;
     if (transaction.billingStatus === BILLING_STATUS.FAILED) summary.totalFailed += transaction.amount;
-    if (transaction.billingStatus === BILLING_STATUS.REFUNDED) summary.totalRefunded += transaction.amount;
+    if (transaction.billingStatus === BILLING_STATUS.REFUNDED) summary.totalRefunded += transaction.refundedAmount || transaction.amount;
+    if (transaction.billingStatus === BILLING_STATUS.PARTIALLY_REFUNDED) summary.totalRefunded += transaction.refundedAmount || 0;
 
     const date = transaction.chargedAt || transaction.createdAt;
     const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
     summary.monthlyRevenue[key] = summary.monthlyRevenue[key] || 0;
     if (transaction.billingStatus === BILLING_STATUS.CHARGED) summary.monthlyRevenue[key] += transaction.amount;
+    if (transaction.billingStatus === BILLING_STATUS.PARTIALLY_REFUNDED) summary.monthlyRevenue[key] += Math.max(transaction.amount - (transaction.refundedAmount || 0), 0);
   });
 
   return summary;
@@ -487,9 +670,13 @@ async function getBillingSummary() {
 module.exports = {
   cancelTransaction,
   chargeClosedMatch,
+  cancelRefund,
   createClientSetupIntent,
+  createRefund,
   createTransactionFromMatch,
   getBillingSummary,
+  getRefundById,
+  getRefunds,
   getTransactionById,
   getTransactions,
   markInvoicePaid,

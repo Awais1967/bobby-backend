@@ -1,4 +1,3 @@
-const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
 
@@ -28,14 +27,6 @@ function createHttpError(message, statusCode) {
 
 function normalizeTeamName(teamName) {
   return teamName.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-function hashSecurityCode(code) {
-  return bcrypt.hash(code, 12);
-}
-
-function compareSecurityCode(code, hash) {
-  return bcrypt.compare(code, hash);
 }
 
 function getRequestMeta(req) {
@@ -128,15 +119,14 @@ function pushDeviceHistory(team, deviceId, requestMeta) {
   });
 }
 
-async function findMatchByPublicCredentials(matchId, entryCode = null) {
-  const match = await Match.findOne({ matchId: matchId.toUpperCase() });
+async function findMatchByGameCode(gameCode) {
+  const normalizedGameCode = String(gameCode || "").trim().toUpperCase();
+  const match = await Match.findOne({
+    $or: [{ matchId: normalizedGameCode }, { entryCode: normalizedGameCode }],
+  });
 
   if (!match) {
     throw createHttpError("Match not found.", 404);
-  }
-
-  if (entryCode !== null && match.entryCode !== entryCode) {
-    throw createHttpError("Invalid entry code.", 400);
   }
 
   return match;
@@ -155,23 +145,21 @@ async function createTeamSession(team, match, deviceId) {
 }
 
 async function joinOrReconnectTeam(payload, requestMeta, mode) {
-  const match = await findMatchByPublicCredentials(payload.matchId, payload.entryCode);
+  const match = await findMatchByGameCode(payload.gameCode);
   ensureMatchAllowsJoining(match);
 
   const teamNameNormalized = normalizeTeamName(payload.teamName);
   let team = await Team.findOne({
     matchDbId: match._id,
     teamNameNormalized,
-  }).select("+securityCodeHash +playerSessionToken");
+  }).select("+playerSessionToken");
 
   if (!team) {
-    const securityCodeHash = await hashSecurityCode(payload.securityCode);
     team = await Team.create({
       matchDbId: match._id,
       matchId: match.matchId,
       teamName: payload.teamName.trim().replace(/\s+/g, " "),
       teamNameNormalized,
-      securityCodeHash,
       activeDeviceId: payload.deviceId,
       status: TEAM_STATUS.ACTIVE,
       deviceHistory: [],
@@ -190,12 +178,6 @@ async function joinOrReconnectTeam(payload, requestMeta, mode) {
 
   if (team.status === TEAM_STATUS.REMOVED) {
     throw createHttpError("Team has been removed from this match.", 403);
-  }
-
-  const codeMatches = await compareSecurityCode(payload.securityCode, team.securityCodeHash);
-
-  if (!codeMatches) {
-    throw createHttpError("Incorrect team security code.", 401);
   }
 
   if (team.activeDeviceId !== payload.deviceId) {
@@ -237,13 +219,13 @@ async function reconnectTeam(payload, requestMeta) {
 }
 
 async function confirmDeviceSwitch(payload, requestMeta) {
-  const match = await findMatchByPublicCredentials(payload.matchId);
+  const match = await findMatchByGameCode(payload.gameCode);
   ensureMatchAllowsJoining(match);
 
   const team = await Team.findOne({
     matchDbId: match._id,
     teamNameNormalized: normalizeTeamName(payload.teamName),
-  }).select("+securityCodeHash +playerSessionToken");
+  }).select("+playerSessionToken");
 
   if (!team) {
     throw createHttpError("Team not found.", 404);
@@ -251,12 +233,6 @@ async function confirmDeviceSwitch(payload, requestMeta) {
 
   if (team.status === TEAM_STATUS.REMOVED) {
     throw createHttpError("Team has been removed from this match.", 403);
-  }
-
-  const codeMatches = await compareSecurityCode(payload.securityCode, team.securityCodeHash);
-
-  if (!codeMatches) {
-    throw createHttpError("Incorrect team security code.", 401);
   }
 
   team.activeDeviceId = payload.deviceId;
@@ -392,11 +368,7 @@ async function restoreTeam(matchDbId, teamId, hostId) {
 }
 
 async function getPublicJoinInfo(matchId) {
-  const match = await Match.findOne({ matchId: matchId.toUpperCase() });
-
-  if (!match) {
-    throw createHttpError("Match not found.", 404);
-  }
+  const match = await findMatchByGameCode(matchId);
 
   return {
     gameTitle: match.gameTitle,
@@ -415,7 +387,6 @@ function ensureDeviceCanSubmit(team, deviceId) {
 }
 
 module.exports = {
-  compareSecurityCode,
   confirmDeviceSwitch,
   ensureDeviceCanSubmit,
   ensureHostOwnsMatch,
@@ -423,7 +394,6 @@ module.exports = {
   getMatchTeams,
   getPlayerSession,
   getPublicJoinInfo,
-  hashSecurityCode,
   joinMatch,
   leaveTeam,
   normalizeTeamName,

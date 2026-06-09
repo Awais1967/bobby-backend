@@ -1,5 +1,6 @@
 const { BILLING_STATUS } = require("../../constants/billingStatus");
 const Match = require("../matches/match.model");
+const Refund = require("./refund.model");
 const Transaction = require("./transaction.model");
 
 async function updateTransactionAndMatch(transaction, updates) {
@@ -13,6 +14,86 @@ async function updateTransactionAndMatch(transaction, updates) {
   });
 
   return transaction;
+}
+
+function getRefundStatus(stripeRefund) {
+  if (!stripeRefund || !stripeRefund.status) return "pending";
+  if (stripeRefund.status === "requires_action") return "requires_action";
+  if (stripeRefund.status === "succeeded") return "succeeded";
+  if (stripeRefund.status === "failed") return "failed";
+  if (stripeRefund.status === "canceled") return "canceled";
+  return "pending";
+}
+
+async function syncTransactionRefundTotals(transaction) {
+  const succeededRefunds = await Refund.find({
+    transactionId: transaction._id,
+    status: "succeeded",
+  }).select("amount stripeRefundId");
+
+  transaction.refundedAmount = Math.min(
+    succeededRefunds.reduce((sum, refund) => sum + refund.amount, 0),
+    transaction.amount
+  );
+  transaction.stripeRefundIds = succeededRefunds.map((refund) => refund.stripeRefundId).filter(Boolean);
+
+  if (transaction.refundedAmount >= transaction.amount) {
+    transaction.billingStatus = BILLING_STATUS.REFUNDED;
+    transaction.refundedAt = transaction.refundedAt || new Date();
+  } else if (transaction.refundedAmount > 0) {
+    transaction.billingStatus = BILLING_STATUS.PARTIALLY_REFUNDED;
+    transaction.refundedAt = transaction.refundedAt || new Date();
+  } else {
+    transaction.billingStatus = BILLING_STATUS.CHARGED;
+    transaction.refundedAt = null;
+  }
+
+  await transaction.save();
+  await Match.findByIdAndUpdate(transaction.matchDbId, {
+    billingStatus: transaction.billingStatus,
+    chargedAmount: Math.max(transaction.amount - transaction.refundedAmount, 0),
+    stripePaymentIntentId: transaction.stripePaymentIntentId,
+  });
+
+  return transaction;
+}
+
+async function upsertRefundFromStripe(stripeRefund, transaction) {
+  if (!stripeRefund || !transaction) return null;
+
+  const status = getRefundStatus(stripeRefund);
+  const refund = await Refund.findOneAndUpdate(
+    { stripeRefundId: stripeRefund.id },
+    {
+      $set: {
+        amount: stripeRefund.amount,
+        currency: stripeRefund.currency || transaction.currency,
+        failureReason: stripeRefund.failure_reason || "",
+        locationId: transaction.locationId,
+        locationName: transaction.locationName,
+        matchDbId: transaction.matchDbId,
+        matchId: transaction.matchId,
+        processedAt: status === "succeeded" ? new Date((stripeRefund.created || Date.now() / 1000) * 1000) : null,
+        reason: stripeRefund.reason || "",
+        status,
+        stripeChargeId: stripeRefund.charge || transaction.stripeChargeId,
+        stripePaymentIntentId: stripeRefund.payment_intent || transaction.stripePaymentIntentId,
+        transactionId: transaction._id,
+      },
+      $setOnInsert: {
+        requestedAt: new Date((stripeRefund.created || Date.now() / 1000) * 1000),
+      },
+    },
+    { new: true, upsert: true }
+  );
+
+  if (status === "canceled") {
+    refund.cancelledAt = refund.cancelledAt || new Date();
+    await refund.save();
+  }
+
+  await syncTransactionRefundTotals(transaction);
+  return refund;
 }
 
 async function handleStripeWebhook(event) {
@@ -47,9 +128,24 @@ async function handleStripeWebhook(event) {
     const transaction = await Transaction.findOne({ stripeChargeId: object.id });
     if (!transaction) return null;
 
-    return updateTransactionAndMatch(transaction, {
-      billingStatus: BILLING_STATUS.REFUNDED,
+    const refunds = object.refunds && Array.isArray(object.refunds.data) ? object.refunds.data : [];
+    for (const refund of refunds) {
+      await upsertRefundFromStripe(refund, transaction);
+    }
+
+    return syncTransactionRefundTotals(transaction);
+  }
+
+  if (event.type === "refund.created" || event.type === "refund.updated" || event.type === "refund.failed") {
+    const transaction = await Transaction.findOne({
+      $or: [
+        { stripePaymentIntentId: object.payment_intent },
+        { stripeChargeId: object.charge },
+      ],
     });
+    if (!transaction) return null;
+
+    return upsertRefundFromStripe(object, transaction);
   }
 
   if (event.type === "charge.succeeded") {

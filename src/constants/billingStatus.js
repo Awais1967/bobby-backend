@@ -7,6 +7,7 @@ const BILLING_STATUS = Object.freeze({
   NOT_STARTED: "not_started",
   PENDING: "pending",
   CHARGED: "charged",
+  PARTIALLY_REFUNDED: "partially_refunded",
   INVOICED: "invoiced",
   UNPAID: "unpaid",
   FAILED: "failed",

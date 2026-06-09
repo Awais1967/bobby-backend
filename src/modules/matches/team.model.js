@@ -56,7 +56,7 @@ const teamSchema = new mongoose.Schema(
     },
     securityCodeHash: {
       type: String,
-      required: true,
+      default: "",
       select: false,
     },
     activeDeviceId: {

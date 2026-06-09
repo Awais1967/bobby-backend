@@ -27,6 +27,15 @@ function validateGameRounds(rounds = []) {
   }
 }
 
+function validateFinalRound(finalRound) {
+  if (!finalRound) return;
+
+  const questionIds = Array.isArray(finalRound.questionIds) ? finalRound.questionIds : [];
+  if (questionIds.length > 1) {
+    throw createHttpError("Final round can have only one question.", 400);
+  }
+}
+
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -171,6 +180,7 @@ async function createGame(payload, adminId) {
   const rounds = payload.rounds || [];
 
   validateGameRounds(rounds);
+  validateFinalRound(payload.finalRound);
 
   if ((finalStatus === "scheduled" || finalStatus === "active") && rounds.length === 0) {
     throw createHttpError("Game must have at least one round before scheduling.", 400);
@@ -274,6 +284,11 @@ async function updateGame(id, payload) {
   const finalRounds = payload.rounds || game.rounds || [];
 
   validateGameRounds(finalRounds);
+  validateFinalRound(
+    Object.prototype.hasOwnProperty.call(payload, "finalRound")
+      ? payload.finalRound
+      : game.finalRound
+  );
 
   if ((finalStatus === "scheduled" || finalStatus === "active") && finalRounds.length === 0) {
     throw createHttpError("Game must have at least one round before scheduling.", 400);

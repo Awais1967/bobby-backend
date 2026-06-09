@@ -111,6 +111,21 @@ const transactionSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    refundedAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    stripeRefundIds: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
+    refundedAt: {
+      type: Date,
+      default: null,
+    },
     receiptSent: {
       type: Boolean,
       default: false,
@@ -184,6 +199,7 @@ transactionSchema.index({ locationId: 1 });
 transactionSchema.index({ hostId: 1 });
 transactionSchema.index({ createdAt: -1 });
 transactionSchema.index({ stripePaymentIntentId: 1 });
+transactionSchema.index({ stripeRefundIds: 1 });
 transactionSchema.index({ matchId: "text", gameTitle: "text", locationName: "text", hostName: "text" });
 
 module.exports = mongoose.model("Transaction", transactionSchema);

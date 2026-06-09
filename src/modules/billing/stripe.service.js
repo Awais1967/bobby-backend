@@ -68,6 +68,35 @@ async function setDefaultPaymentMethod(customerId, paymentMethodId) {
   });
 }
 
+async function createRefund(payload, idempotencyKey) {
+  const stripe = getStripeClient();
+  const params = {
+    amount: payload.amount || undefined,
+    metadata: payload.metadata || {},
+    reason: payload.reason || undefined,
+  };
+
+  if (payload.paymentIntent) {
+    params.payment_intent = payload.paymentIntent;
+  } else {
+    params.charge = payload.charge;
+  }
+
+  return stripe.refunds.create(params, { idempotencyKey });
+}
+
+async function cancelRefund(refundId) {
+  const stripe = getStripeClient();
+
+  return stripe.refunds.cancel(refundId);
+}
+
+async function retrieveRefund(refundId) {
+  const stripe = getStripeClient();
+
+  return stripe.refunds.retrieve(refundId);
+}
+
 function constructWebhookEvent(rawBody, signature) {
   const stripe = getStripeClient();
 
@@ -80,10 +109,13 @@ function constructWebhookEvent(rawBody, signature) {
 
 module.exports = {
   attachPaymentMethod,
+  cancelRefund,
   constructWebhookEvent,
   createCustomer,
   createOffSessionPaymentIntent,
+  createRefund,
   createSetupIntent,
   retrievePaymentMethod,
+  retrieveRefund,
   setDefaultPaymentMethod,
 };

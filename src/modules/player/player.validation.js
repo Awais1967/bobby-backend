@@ -5,24 +5,20 @@ const teamName = Joi.string().trim().min(2).max(40).required().messages({
   "string.empty": "Team name is required.",
 });
 
-const securityCode = Joi.string().pattern(/^\d{4}$/).required().messages({
-  "string.pattern.base": "Security code must be exactly 4 digits.",
-});
-
 const joinMatchValidation = Joi.object({
-  matchId: Joi.string().trim().uppercase().required(),
-  entryCode: Joi.string().trim().required(),
+  gameCode: Joi.string().trim().uppercase().required().messages({
+    "any.required": "Game code is required.",
+    "string.empty": "Game code is required.",
+  }),
   teamName,
-  securityCode,
   deviceId: Joi.string().trim().required(),
 });
 
 const reconnectTeamValidation = joinMatchValidation;
 
 const confirmDeviceSwitchValidation = Joi.object({
-  matchId: Joi.string().trim().uppercase().required(),
+  gameCode: Joi.string().trim().uppercase().required(),
   teamName,
-  securityCode,
   deviceId: Joi.string().trim().required(),
 });
 

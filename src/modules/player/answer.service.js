@@ -8,6 +8,7 @@ const { emitTeamEvent } = require("../../sockets/player.socket");
 const { emitAnswerSubmitted } = require("../../sockets/leaderboard.socket");
 const Answer = require("../matches/answer.model");
 const Match = require("../matches/match.model");
+const scoringService = require("../matches/scoring.service");
 const Team = require("../matches/team.model");
 const Question = require("../questions/question.model");
 const playerService = require("./player.service");
@@ -290,7 +291,17 @@ async function submitAnswer(playerPayload, answerPayload) {
     currentAnswerStatus: team.currentAnswerStatus,
   });
 
-  return response;
+  try {
+    const autoReview = await scoringService.autoReviewSubmittedAnswer(match, answer, team, question);
+    if (autoReview?.answer?.id) {
+      const reviewedAnswer = await Answer.findById(autoReview.answer.id);
+      return toAnswerResponse(reviewedAnswer || answer);
+    }
+  } catch (error) {
+    console.error(`Auto-grading failed for answer ${answer._id}: ${error.message}`);
+  }
+
+  return toAnswerResponse(answer);
 }
 
 async function getMyCurrentAnswer(playerPayload) {

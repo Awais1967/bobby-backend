@@ -143,6 +143,12 @@ const gameSchema = new mongoose.Schema(
     finalRound: {
       type: roundSchema,
       default: null,
+      validate: {
+        validator(round) {
+          return !round || !Array.isArray(round.questionIds) || round.questionIds.length <= 1;
+        },
+        message: "Final round can have only one question.",
+      },
     },
     totalQuestions: {
       type: Number,
