@@ -69,10 +69,20 @@ async function getOverview(req, res, next) {
   }
 }
 
+async function getGoogleStatus(req, res, next) {
+  try {
+    const data = await calendarService.getGoogleCalendarStatus();
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   getDayMatches,
   getMatchDetail,
   getMonthlyMatches,
+  getGoogleStatus,
   getOverview,
   getRangeMatches,
   getSummary,

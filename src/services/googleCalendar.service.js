@@ -142,6 +142,35 @@ async function listGoogleCalendarEvents({ start, end, search = "" }) {
     .filter((event) => !event.syncedGameId);
 }
 
+async function getGoogleCalendarStatus() {
+  const configured = isConfigured();
+  if (!configured) {
+    return {
+      configured: false,
+      connected: false,
+      message: "Google Calendar credentials are not configured.",
+    };
+  }
+
+  try {
+    const data = await requestCalendar("GET", "");
+    return {
+      configured: true,
+      connected: true,
+      calendarId: getEnv("GOOGLE_CALENDAR_ID"),
+      summary: data.summary || "",
+      timeZone: data.timeZone || "",
+    };
+  } catch (error) {
+    return {
+      configured: true,
+      connected: false,
+      calendarId: getEnv("GOOGLE_CALENDAR_ID"),
+      message: error.message || "Google Calendar connection failed.",
+    };
+  }
+}
+
 async function syncGameToGoogleCalendar(game) {
   if (!isConfigured()) return null;
 
@@ -176,6 +205,7 @@ async function deleteGameFromGoogleCalendar(game) {
 
 module.exports = {
   deleteGameFromGoogleCalendar,
+  getGoogleCalendarStatus,
   isConfigured,
   listGoogleCalendarEvents,
   syncGameToGoogleCalendar,

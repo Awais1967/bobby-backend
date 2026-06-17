@@ -11,7 +11,10 @@ const {
 const Game = require("../games/game.model");
 const Match = require("../matches/match.model");
 const Team = require("../matches/team.model");
-const { listGoogleCalendarEvents } = require("../../services/googleCalendar.service");
+const {
+  getGoogleCalendarStatus,
+  listGoogleCalendarEvents,
+} = require("../../services/googleCalendar.service");
 const reportService = require("../reports/report.service");
 
 const CALENDAR_GAME_STATUSES = ["draft", "scheduled", "active"];
@@ -552,5 +555,6 @@ module.exports = {
   getCalendarMatchesByRange,
   getCalendarOverview,
   getCalendarSummary,
+  getGoogleCalendarStatus,
   getMonthlyCalendarMatches,
 };

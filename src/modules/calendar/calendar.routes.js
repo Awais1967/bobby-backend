@@ -16,6 +16,7 @@ const superAdminOnly = [
 
 router.get("/overview", superAdminOnly, calendarController.getOverview);
 router.get("/summary", superAdminOnly, calendarController.getSummary);
+router.get("/google/status", superAdminOnly, calendarController.getGoogleStatus);
 router.get("/matches", superAdminOnly, calendarController.getMonthlyMatches);
 router.get("/range", superAdminOnly, calendarController.getRangeMatches);
 router.get("/day", superAdminOnly, calendarController.getDayMatches);
