@@ -114,6 +114,20 @@ async function closeCurrentQuestion(req, res, next) {
   }
 }
 
+async function revealCurrentAnswer(req, res, next) {
+  try {
+    const match = await matchService.revealCurrentAnswer(req.params.id, req.user.id);
+
+    return res.status(200).json({
+      success: true,
+      message: "Answer revealed successfully",
+      data: { match },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function advanceToNextQuestion(req, res, next) {
   try {
     const match = await matchService.advanceToNextQuestion(req.params.id, req.user.id);
@@ -404,6 +418,7 @@ module.exports = {
   getPublicMatchInfo,
   jumpToQuestion,
   openCurrentQuestion,
+  revealCurrentAnswer,
   skipQuestion,
   startIntermission,
   startMatch,

@@ -111,6 +111,12 @@ router.patch(
   matchController.closeCurrentQuestion
 );
 router.patch(
+  "/:id/question/reveal-answer",
+  authMiddleware,
+  requireRole(ROLES.HOST),
+  matchController.revealCurrentAnswer
+);
+router.patch(
   "/:id/question/next",
   authMiddleware,
   requireRole(ROLES.HOST),

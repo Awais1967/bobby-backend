@@ -123,6 +123,10 @@ const matchSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isAnswerRevealed: {
+      type: Boolean,
+      default: false,
+    },
     isIntermission: {
       type: Boolean,
       default: false,

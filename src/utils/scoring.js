@@ -60,13 +60,17 @@ function calculateWagerPoints(answer, isCorrect) {
   return isCorrect ? wagerAmount : -wagerAmount;
 }
 
+function getQuestionPoints(question) {
+  return Math.max(Number(question?.points) || 0, 10);
+}
+
 function calculateAwardedPoints(question, answer, reviewPayload) {
   if (typeof reviewPayload.awardedPoints === "number") {
     return reviewPayload.awardedPoints;
   }
 
   if (reviewPayload.reviewStatus === "correct") {
-    const basePoints = question.points || 0;
+    const basePoints = getQuestionPoints(question);
     const speedBonus = question.type === "speed" ? calculateSpeedBonus(question, answer.responseTimeMs || 0) : 0;
     return basePoints + speedBonus;
   }
@@ -103,6 +107,7 @@ module.exports = {
   calculateAwardedPoints,
   calculateSpeedBonus,
   calculateWagerPoints,
+  getQuestionPoints,
   isFiftyFiftyCorrect,
   isMultipleChoiceCorrect,
   isNumericCorrect,

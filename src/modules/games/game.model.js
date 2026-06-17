@@ -93,6 +93,12 @@ const gameSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    scheduledTime: {
+      type: String,
+      default: "",
+      trim: true,
+      match: /^$|^([01]\d|2[0-3]):[0-5]\d$/,
+    },
     availableFrom: {
       type: Date,
       default: null,

@@ -14,6 +14,7 @@ const {
   applyScoreChange,
   calculateAwardedPoints,
   calculateWagerPoints,
+  getQuestionPoints,
   isFiftyFiftyCorrect,
   isMultipleChoiceCorrect,
   isNumericCorrect,
@@ -250,7 +251,7 @@ async function reviewAnswer(matchDbId, answerId, hostId, payload) {
   }
 
   if (payload.reviewStatus === REVIEW_STATUS.PARTIAL) {
-    const maxPoints = question.points || 0;
+    const maxPoints = getQuestionPoints(question);
     if (payload.awardedPoints > maxPoints && answer.questionType !== "wager") {
       payload.awardedPoints = maxPoints;
     }
@@ -334,6 +335,10 @@ async function autoGradeQuestion(matchDbId, questionId, hostId) {
   const errors = [];
 
   for (const answer of answers) {
+    if (answer.reviewStatus !== REVIEW_STATUS.PENDING) {
+      continue;
+    }
+
     const reviewStatus = getAutoGradeStatus(question, answer);
 
     if (reviewStatus === REVIEW_STATUS.PENDING) {

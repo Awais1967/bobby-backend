@@ -40,6 +40,52 @@ function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function getDatePart(value) {
+  if (!value) return "";
+  if (typeof value === "string") {
+    const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) return match[1];
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+function getTimePart(value) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
+}
+
+function normalizeGameSchedule(payload) {
+  if (!Object.prototype.hasOwnProperty.call(payload, "scheduledDate")) {
+    return payload;
+  }
+
+  if (!payload.scheduledDate) {
+    return {
+      ...payload,
+      scheduledDate: null,
+      scheduledTime: payload.scheduledTime || "",
+    };
+  }
+
+  const datePart = getDatePart(payload.scheduledDate);
+  const timePart = payload.scheduledTime || getTimePart(payload.scheduledDate);
+
+  if (!datePart || !timePart) {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    scheduledDate: new Date(`${datePart}T${timePart}:00.000Z`),
+    scheduledTime: timePart,
+  };
+}
+
 function ensureGameObjectId(id) {
   if (!mongoose.isValidObjectId(id)) {
     throw createHttpError("Game not found.", 404);
@@ -176,6 +222,7 @@ async function deleteGameCalendarEvent(game) {
 }
 
 async function createGame(payload, adminId) {
+  payload = normalizeGameSchedule(payload);
   const finalStatus = payload.status || "draft";
   const rounds = payload.rounds || [];
 
@@ -273,6 +320,7 @@ async function getGameById(id) {
 }
 
 async function updateGame(id, payload) {
+  payload = normalizeGameSchedule(payload);
   ensureGameObjectId(id);
 
   const game = await Game.findById(id);

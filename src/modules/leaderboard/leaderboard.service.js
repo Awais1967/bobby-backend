@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 
 const { TEAM_STATUS } = require("../../constants/teamStatus");
+const { getQuestionPoints } = require("../../utils/scoring");
 const Answer = require("../matches/answer.model");
 const Match = require("../matches/match.model");
 const Team = require("../matches/team.model");
@@ -116,7 +117,21 @@ async function getHostLeaderboard(matchDbId, hostId) {
   };
 }
 
-function safeQuestionData(question) {
+function getCorrectAnswerDisplay(question) {
+  if (!question) return "";
+  if (Array.isArray(question.correctAnswers) && question.correctAnswers.length > 0) {
+    return question.correctAnswers.join(", ");
+  }
+  if (Array.isArray(question.orderingAnswer) && question.orderingAnswer.length > 0) {
+    return question.orderingAnswer.join(", ");
+  }
+  if (question.numericAnswer !== null && question.numericAnswer !== undefined) {
+    return String(question.numericAnswer);
+  }
+  return question.correctAnswer || "";
+}
+
+function safeQuestionData(question, includeAnswer = false) {
   if (!question) {
     return null;
   }
@@ -136,7 +151,8 @@ function safeQuestionData(question) {
     imageUrl: question.mediaType === "image" ? question.imageUrl : "",
     options: canShowOptions ? options : [],
     estimatedTimeSeconds: question.estimatedTimeSeconds,
-    points: question.points,
+    points: getQuestionPoints(question),
+    answer: includeAnswer ? getCorrectAnswerDisplay(question) : "",
   };
 }
 
@@ -145,12 +161,13 @@ async function getCurrentSafeQuestion(match, includeWhenClosed = false) {
     return null;
   }
 
-  if (!includeWhenClosed && !match.isQuestionOpen) {
+  const isVisible = match.isQuestionOpen || match.isAnswerRevealed || includeWhenClosed;
+  if (!isVisible) {
     return null;
   }
 
   const question = await Question.findById(match.currentQuestionId).lean();
-  return safeQuestionData(question);
+  return safeQuestionData(question, Boolean(match.isAnswerRevealed));
 }
 
 async function getPlayerState(playerPayload) {
@@ -189,6 +206,7 @@ async function getPlayerState(playerPayload) {
     currentRoundIndex: match.currentRoundIndex,
     currentQuestionIndex: match.currentQuestionIndex,
     isQuestionOpen: match.isQuestionOpen,
+    isAnswerRevealed: Boolean(match.isAnswerRevealed),
     isIntermission: match.isIntermission,
     team: {
       teamId: team._id.toString(),
@@ -227,6 +245,8 @@ async function getPresentationState(matchId) {
     joinUrl: match.joinUrl,
     status: match.status,
     currentState: match.currentState,
+    isQuestionOpen: match.isQuestionOpen,
+    isAnswerRevealed: Boolean(match.isAnswerRevealed),
     currentQuestion,
     leaderboard,
   };

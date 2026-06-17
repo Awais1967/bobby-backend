@@ -11,11 +11,12 @@ const {
 const Game = require("../games/game.model");
 const Match = require("../matches/match.model");
 const Team = require("../matches/team.model");
+const { listGoogleCalendarEvents } = require("../../services/googleCalendar.service");
 const reportService = require("../reports/report.service");
 
 const CALENDAR_GAME_STATUSES = ["draft", "scheduled", "active"];
 const CALENDAR_TEAM_STAGE_LIMIT = 25;
-const CALENDAR_GAME_SELECT = "title description type status scheduledDate availableFrom availableTo isRecurring recurrenceRule isGlobal assignedLocationIds assignedHostIds totalQuestions";
+const CALENDAR_GAME_SELECT = "title description type status scheduledDate scheduledTime availableFrom availableTo isRecurring recurrenceRule isGlobal assignedLocationIds assignedHostIds totalQuestions";
 
 function idToString(value) {
   return value ? String(value) : null;
@@ -237,7 +238,9 @@ function formatGameEvent(game) {
     gameType: game.type,
     status: game.status,
     date: formatCalendarEventDate(game.scheduledDate),
+    startTime: game.scheduledTime || formatReportTime(game.scheduledDate),
     scheduledDate: game.scheduledDate,
+    scheduledTime: game.scheduledTime || "",
     availableFrom: game.availableFrom,
     availableTo: game.availableTo,
     isRecurring: Boolean(game.isRecurring),
@@ -353,10 +356,14 @@ async function getCalendarMatchesByRange(query) {
   const games = query.eventCategory === "match"
     ? []
     : await calendarGameQuery(query, range.start, range.end).lean();
+  const googleEvents = query.eventCategory
+    ? []
+    : await listGoogleCalendarEvents({ start: range.start, end: range.end, search: query.search });
 
   return {
     ...matches,
     games: games.map(formatGameEvent),
+    googleEvents,
   };
 }
 
@@ -400,15 +407,20 @@ async function getCalendarDayMatches(query) {
   }));
 
   const games = query.eventCategory === "match" ? [] : await calendarGameQuery(query, start, end).lean();
+  const googleEvents = query.eventCategory
+    ? []
+    : await listGoogleCalendarEvents({ start, end, search: query.search });
 
   return {
     date: formatCalendarEventDate(start),
     period: buildPeriodResponse(start, end),
     items,
     games: games.map(formatGameEvent),
+    googleEvents,
     totals: {
       matches: items.length,
       games: games.length,
+      googleEvents: googleEvents.length,
     },
   };
 }

@@ -13,12 +13,14 @@ const {
 const { emitMatchEvent } = require("../../sockets/match.socket");
 const { generateEntryCode, generateMatchCode } = require("../../utils/generateMatchCode");
 const generateQrCode = require("../../utils/generateQrCode");
+const { getQuestionPoints } = require("../../utils/scoring");
 const Game = require("../games/game.model");
 const Host = require("../hosts/host.model");
 const Location = require("../locations/location.model");
 const billingService = require("../billing/billing.service");
 const Question = require("../questions/question.model");
 const Match = require("./match.model");
+const scoringService = require("./scoring.service");
 
 const ACTIVE_MATCH_STATUSES = [
   MATCH_STATUS.SETUP,
@@ -78,6 +80,8 @@ function toPublicMatchResponse(match) {
     qrCodeDataUrl: data.qrCodeDataUrl,
     status: data.status,
     currentState: data.currentState,
+    isQuestionOpen: Boolean(data.isQuestionOpen),
+    isAnswerRevealed: Boolean(data.isAnswerRevealed),
   };
 }
 
@@ -435,7 +439,7 @@ function toHostQuestionResponse(question) {
     songTitle: question.songTitle,
     artistName: question.artistName,
     estimatedTimeSeconds: question.estimatedTimeSeconds,
-    points: question.points,
+    points: getQuestionPoints(question),
   };
 }
 
@@ -490,6 +494,7 @@ async function startMatch(matchDbId, hostId) {
   match.currentQuestionId = firstQuestion.questionId;
   match.currentState = MATCH_CURRENT_STATE.QUESTION_CLOSED;
   match.isQuestionOpen = false;
+  match.isAnswerRevealed = false;
   match.isIntermission = false;
   match.activeIntermissionIndex = null;
   await match.save();
@@ -508,6 +513,7 @@ async function openCurrentQuestion(matchDbId, hostId) {
   }
 
   match.isQuestionOpen = true;
+  match.isAnswerRevealed = false;
   match.currentState = MATCH_CURRENT_STATE.QUESTION_OPEN;
   match.timerStartedAt = new Date();
   match.timerPausedAt = null;
@@ -523,6 +529,26 @@ async function closeCurrentQuestion(matchDbId, hostId) {
   const match = await findOwnedMatch(matchDbId, hostId, [MATCH_STATUS.LIVE]);
 
   match.isQuestionOpen = false;
+  match.currentState = MATCH_CURRENT_STATE.REVIEWING_ANSWERS;
+  await match.save();
+
+  emitMatchEvent(SOCKET_EVENTS.QUESTION_CLOSED, match, toPublicMatchResponse(match));
+  emitQuestionStateUpdated(match, toPublicMatchResponse(match));
+
+  return toResponse(match);
+}
+
+async function revealCurrentAnswer(matchDbId, hostId) {
+  const match = await findOwnedMatch(matchDbId, hostId, [MATCH_STATUS.LIVE]);
+
+  if (!match.currentQuestionId) {
+    throw createHttpError("Question not found in game structure.", 404);
+  }
+
+  await scoringService.autoGradeQuestion(matchDbId, match.currentQuestionId, hostId);
+
+  match.isQuestionOpen = false;
+  match.isAnswerRevealed = true;
   match.currentState = MATCH_CURRENT_STATE.REVIEWING_ANSWERS;
   await match.save();
 
@@ -548,6 +574,7 @@ async function advanceToNextQuestion(matchDbId, hostId) {
   if (nextPointer.gameOver) {
     match.currentState = MATCH_CURRENT_STATE.GAME_OVER;
     match.isQuestionOpen = false;
+    match.isAnswerRevealed = false;
     match.isIntermission = false;
     match.activeIntermissionIndex = null;
     match.timerStartedAt = null;
@@ -564,6 +591,7 @@ async function advanceToNextQuestion(matchDbId, hostId) {
     match.currentState = MATCH_CURRENT_STATE.INTERMISSION;
     match.isIntermission = true;
     match.isQuestionOpen = false;
+    match.isAnswerRevealed = false;
     match.activeIntermissionIndex = nextPointer.intermissionIndex;
     await match.save();
 
@@ -578,6 +606,7 @@ async function advanceToNextQuestion(matchDbId, hostId) {
   match.currentQuestionId = nextPointer.questionId;
   match.currentState = MATCH_CURRENT_STATE.QUESTION_CLOSED;
   match.isQuestionOpen = false;
+  match.isAnswerRevealed = false;
   match.isIntermission = false;
   match.activeIntermissionIndex = null;
   match.timerStartedAt = null;
@@ -609,6 +638,7 @@ async function jumpToQuestion(matchDbId, hostId, payload) {
   match.currentQuestionId = pointer.questionId;
   match.currentState = MATCH_CURRENT_STATE.QUESTION_CLOSED;
   match.isQuestionOpen = false;
+  match.isAnswerRevealed = false;
   match.isIntermission = false;
   match.activeIntermissionIndex = null;
   await match.save();
@@ -638,15 +668,14 @@ async function startIntermission(matchDbId, hostId, payload) {
     throw createHttpError("Game not found.", 404);
   }
 
-  if (!game.intermissions || !game.intermissions[payload.intermissionIndex]) {
-    throw createHttpError("Question not found in game structure.", 404);
-  }
+  const hasConfiguredIntermission = Boolean(game.intermissions?.[payload.intermissionIndex]);
 
   match.status = MATCH_STATUS.INTERMISSION;
   match.currentState = MATCH_CURRENT_STATE.INTERMISSION;
   match.isIntermission = true;
   match.isQuestionOpen = false;
-  match.activeIntermissionIndex = payload.intermissionIndex;
+  match.isAnswerRevealed = false;
+  match.activeIntermissionIndex = hasConfiguredIntermission ? payload.intermissionIndex : null;
   await match.save();
 
   emitMatchEvent(SOCKET_EVENTS.INTERMISSION_STARTED, match, toPublicMatchResponse(match));
@@ -661,6 +690,7 @@ async function endIntermission(matchDbId, hostId) {
   match.status = MATCH_STATUS.LIVE;
   match.currentState = MATCH_CURRENT_STATE.QUESTION_CLOSED;
   match.isIntermission = false;
+  match.isAnswerRevealed = false;
   match.activeIntermissionIndex = null;
   await match.save();
 
@@ -686,6 +716,7 @@ async function closeMatch(matchDbId, hostId) {
     match.closedAt = new Date();
     match.currentState = MATCH_CURRENT_STATE.GAME_OVER;
     match.isQuestionOpen = false;
+    match.isAnswerRevealed = false;
     match.isIntermission = false;
     await match.save();
 
@@ -742,6 +773,7 @@ async function endMatch(matchDbId, hostId) {
   match.endedAt = new Date();
   match.currentState = MATCH_CURRENT_STATE.GAME_OVER;
   match.isQuestionOpen = false;
+  match.isAnswerRevealed = false;
   match.isIntermission = false;
   await match.save();
 
@@ -772,6 +804,7 @@ async function cancelMatch(matchDbId, user, reason = "") {
   match.endedAt = new Date();
   match.currentState = MATCH_CURRENT_STATE.GAME_OVER;
   match.isQuestionOpen = false;
+  match.isAnswerRevealed = false;
   match.isIntermission = false;
   match.cancelReason = reason || "";
   await match.save();
@@ -867,6 +900,7 @@ module.exports = {
   getPublicMatchInfo,
   jumpToQuestion,
   openCurrentQuestion,
+  revealCurrentAnswer,
   skipQuestion,
   startIntermission,
   startMatch,

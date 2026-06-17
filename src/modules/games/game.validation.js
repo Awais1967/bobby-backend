@@ -6,6 +6,7 @@ const minGameRounds = 1;
 const maxGameRounds = 4;
 const objectIdPattern = /^[0-9a-fA-F]{24}$/;
 const objectId = Joi.string().pattern(objectIdPattern);
+const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const roundSchema = Joi.object({
   roundNumber: Joi.number().integer().required(),
@@ -37,6 +38,9 @@ const baseGameFields = {
   type: Joi.string().valid(...typeValues),
   status: Joi.string().valid(...statusValues),
   scheduledDate: Joi.date().iso().allow(null).default(null),
+  scheduledTime: Joi.string().trim().pattern(timePattern).allow("").default("").messages({
+    "string.pattern.base": "Scheduled time must be in HH:mm format.",
+  }),
   availableFrom: Joi.date().iso().allow(null).default(null),
   availableTo: Joi.date().iso().allow(null).default(null),
   isRecurring: Joi.boolean().default(false),
@@ -88,6 +92,9 @@ const updateGameValidation = Joi.object({
     "any.only": "Invalid game status.",
   }),
   scheduledDate: Joi.date().iso().allow(null).optional(),
+  scheduledTime: Joi.string().trim().pattern(timePattern).allow("").optional().messages({
+    "string.pattern.base": "Scheduled time must be in HH:mm format.",
+  }),
   availableFrom: Joi.date().iso().allow(null).optional(),
   availableTo: Joi.date().iso().allow(null).optional(),
   isRecurring: Joi.boolean().optional(),

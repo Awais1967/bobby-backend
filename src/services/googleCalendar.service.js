@@ -28,6 +28,36 @@ function addOneDay(dateString) {
   return date.toISOString().slice(0, 10);
 }
 
+function addHours(value, hours) {
+  const date = new Date(value);
+  date.setUTCHours(date.getUTCHours() + hours);
+  return date.toISOString();
+}
+
+function getGoogleEventDateTime(value) {
+  return value?.dateTime || (value?.date ? `${value.date}T00:00:00.000Z` : "");
+}
+
+function mapGoogleEvent(event) {
+  return {
+    id: event.id,
+    type: "google",
+    title: event.summary || "Google Calendar Event",
+    description: event.description || "",
+    date: formatGoogleDate(getGoogleEventDateTime(event.start)),
+    startTime: getGoogleEventDateTime(event.start),
+    endTime: getGoogleEventDateTime(event.end),
+    scheduledAt: getGoogleEventDateTime(event.start),
+    endedAt: getGoogleEventDateTime(event.end),
+    locationName: event.location || "",
+    status: event.status || "",
+    htmlLink: event.htmlLink || "",
+    source: "google_calendar",
+    googleCalendarEventId: event.id,
+    syncedGameId: event.extendedProperties?.private?.triviaGoatGameId || "",
+  };
+}
+
 async function getAccessToken() {
   const response = await fetch(GOOGLE_TOKEN_URL, {
     method: "POST",
@@ -54,11 +84,14 @@ function buildEventPayload(game) {
   const date = formatGoogleDate(game.scheduledDate);
   if (!date) return null;
 
+  const scheduledDate = new Date(game.scheduledDate);
+  const hasTime = Boolean(game.scheduledTime) && !Number.isNaN(scheduledDate.getTime());
+
   return {
     summary: game.title,
     description: [game.description, `Trivia Goat game status: ${game.status}`].filter(Boolean).join("\n\n"),
-    start: { date },
-    end: { date: addOneDay(date) },
+    start: hasTime ? { dateTime: scheduledDate.toISOString() } : { date },
+    end: hasTime ? { dateTime: addHours(scheduledDate, 2) } : { date: addOneDay(date) },
     extendedProperties: {
       private: {
         triviaGoatGameId: String(game._id || game.id),
@@ -87,6 +120,26 @@ async function requestCalendar(method, path, body) {
   }
 
   return data;
+}
+
+async function listGoogleCalendarEvents({ start, end, search = "" }) {
+  if (!isConfigured()) return [];
+
+  const params = new URLSearchParams({
+    singleEvents: "true",
+    orderBy: "startTime",
+    timeMin: start.toISOString(),
+    timeMax: end.toISOString(),
+  });
+
+  if (search) {
+    params.set("q", search);
+  }
+
+  const data = await requestCalendar("GET", `/events?${params.toString()}`);
+  return (data.items || [])
+    .map(mapGoogleEvent)
+    .filter((event) => !event.syncedGameId);
 }
 
 async function syncGameToGoogleCalendar(game) {
@@ -124,5 +177,6 @@ async function deleteGameFromGoogleCalendar(game) {
 module.exports = {
   deleteGameFromGoogleCalendar,
   isConfigured,
+  listGoogleCalendarEvents,
   syncGameToGoogleCalendar,
 };
