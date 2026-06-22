@@ -147,6 +147,7 @@ function toClientResponse(client, options = {}) {
       city: data.city,
       zip: data.zip,
       billingMethod: data.billingMethod,
+      billingContactName: data.billingContactName,
       clientEmail: data.clientEmail,
       lastLoginAt: data.lastLoginAt,
       status: data.status,
@@ -155,7 +156,6 @@ function toClientResponse(client, options = {}) {
       cardExpMonth: data.cardExpMonth,
       cardExpYear: data.cardExpYear,
       cardLast4: data.cardLast4,
-      defaultMatchPrice: data.defaultMatchPrice,
       maskedPaymentMethod: data.maskedPaymentMethod,
     };
   }

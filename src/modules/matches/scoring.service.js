@@ -101,7 +101,7 @@ async function ensureTeamBelongsToMatch(teamId, matchDbId) {
 }
 
 function getAnswerActionType(answer, reviewStatus) {
-  if (answer.questionType === "wager") {
+  if (hasWagerAmount(answer)) {
     return reviewStatus === REVIEW_STATUS.CORRECT
       ? SCORE_ACTION_TYPES.WAGER_CORRECT
       : SCORE_ACTION_TYPES.WAGER_INCORRECT;
@@ -130,6 +130,23 @@ function getWagerAwardedPoints(answer, reviewStatus) {
   }
 
   return calculateWagerPoints(answer, reviewStatus === REVIEW_STATUS.CORRECT);
+}
+
+function hasWagerAmount(answer) {
+  return typeof answer?.wagerAmount === "number";
+}
+
+function hasSubmittedAnswerValue(answer) {
+  return Boolean(
+    answer &&
+      (
+        (typeof answer.answerText === "string" && answer.answerText.trim()) ||
+        (typeof answer.selectedOption === "string" && answer.selectedOption.trim()) ||
+        (Array.isArray(answer.selectedOptions) && answer.selectedOptions.length > 0) ||
+        (Array.isArray(answer.orderingAnswer) && answer.orderingAnswer.length > 0) ||
+        typeof answer.numericAnswer === "number"
+      )
+  );
 }
 
 async function createScoreLog(payload) {
@@ -189,7 +206,7 @@ async function applyAnswerReview(match, answer, team, question, hostId, payload)
   let awardedPoints;
   let pointsChange;
 
-  if (answer.questionType === "wager" && payload.reviewStatus !== REVIEW_STATUS.PARTIAL) {
+  if (hasWagerAmount(answer) && payload.reviewStatus !== REVIEW_STATUS.PARTIAL) {
     awardedPoints = getWagerAwardedPoints(answer, payload.reviewStatus);
     pointsChange = awardedPoints - (answer.awardedPoints || 0);
   } else {
@@ -292,6 +309,10 @@ async function bulkReviewAnswers(matchDbId, hostId, reviews) {
 }
 
 function getAutoGradeStatus(question, answer) {
+  if (hasWagerAmount(answer) && !hasSubmittedAnswerValue(answer)) {
+    return REVIEW_STATUS.PENDING;
+  }
+
   if (question.type === "multiple_choice" && isMultipleChoiceCorrect(question, answer)) {
     return REVIEW_STATUS.CORRECT;
   }

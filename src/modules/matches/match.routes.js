@@ -117,6 +117,12 @@ router.patch(
   matchController.revealCurrentAnswer
 );
 router.patch(
+  "/:id/question/reveal-final",
+  authMiddleware,
+  requireRole(ROLES.HOST),
+  matchController.revealFinalQuestion
+);
+router.patch(
   "/:id/question/next",
   authMiddleware,
   requireRole(ROLES.HOST),
@@ -146,6 +152,8 @@ router.patch(
   requireRole(ROLES.HOST),
   matchController.endIntermission
 );
+router.patch("/:id/pause", authMiddleware, requireRole(ROLES.HOST), matchController.pauseMatch);
+router.patch("/:id/resume", authMiddleware, requireRole(ROLES.HOST), matchController.resumeMatch);
 router.patch("/:id/close", authMiddleware, requireRole(ROLES.HOST), matchController.closeMatch);
 router.patch("/:id/end", authMiddleware, requireRole(ROLES.HOST), matchController.endMatch);
 router.patch(

@@ -7,6 +7,7 @@ const { CURRENT_ANSWER_STATUS, TEAM_STATUS } = require("../../constants/teamStat
 const { emitTeamEvent } = require("../../sockets/player.socket");
 const { emitAnswerSubmitted } = require("../../sockets/leaderboard.socket");
 const Answer = require("../matches/answer.model");
+const Game = require("../games/game.model");
 const Match = require("../matches/match.model");
 const Team = require("../matches/team.model");
 const Question = require("../questions/question.model");
@@ -34,6 +35,7 @@ function toAnswerResponse(answer) {
   return {
     id: data._id ? data._id.toString() : data.id,
     teamName: data.teamName,
+    matchDbId: data.matchDbId ? data.matchDbId.toString() : null,
     matchId: data.matchId,
     questionId: data.questionId ? data.questionId.toString() : null,
     roundIndex: data.roundIndex,
@@ -167,20 +169,21 @@ function validateAnswerByQuestionType(question, payload, team) {
   }
 
   if (questionType === "wager") {
-    if (typeof payload.wagerAmount !== "number") {
+    const hasWager = typeof payload.wagerAmount === "number";
+    const hasFinalAnswer = hasText(payload.answerText) || hasText(payload.selectedOption);
+
+    if (!hasWager && !hasFinalAnswer) {
       throw createHttpError("Wager amount is required.", 400);
     }
 
     const maxWagerPercent = question.maxWagerPercent || 50;
     const maxWager = Math.floor((team.score || 0) * maxWagerPercent / 100);
 
-    if (payload.wagerAmount > maxWager) {
+    if (hasWager && payload.wagerAmount > maxWager) {
       throw createHttpError("Wager amount exceeds allowed limit.", 400);
     }
 
-    if (!hasText(payload.answerText) && !hasText(payload.selectedOption)) {
-      throw createHttpError("Answer text is required.", 400);
-    }
+    return;
   }
 }
 
@@ -224,6 +227,16 @@ function findExistingAnswer(matchDbId, teamId, questionId) {
   return Answer.findOne({ matchDbId, teamId, questionId });
 }
 
+async function isCurrentFinalRoundQuestion(match) {
+  if (!match.currentQuestionId) {
+    return false;
+  }
+
+  const game = await Game.findById(match.gameId).select("finalRound.questionIds").lean();
+  const finalQuestionIds = (game?.finalRound?.questionIds || []).map((questionId) => questionId.toString());
+  return finalQuestionIds.includes(match.currentQuestionId.toString());
+}
+
 async function submitAnswer(playerPayload, answerPayload) {
   const [match, team] = await Promise.all([
     Match.findById(playerPayload.matchDbId),
@@ -233,12 +246,45 @@ async function submitAnswer(playerPayload, answerPayload) {
   ensureMatchQuestionIsOpen(match);
   ensureTeamCanSubmit(team, playerPayload.deviceId);
 
-  const question = await getCurrentQuestion(match);
-  validateAnswerByQuestionType(question, answerPayload, team);
+  const [question, isFinalRoundQuestion] = await Promise.all([
+    getCurrentQuestion(match),
+    isCurrentFinalRoundQuestion(match),
+  ]);
+  if (
+    isFinalRoundQuestion &&
+    !match.isFinalQuestionRevealed &&
+    (hasText(answerPayload.answerText) || hasText(answerPayload.selectedOption))
+  ) {
+    throw createHttpError("Final question has not been revealed yet.", 400);
+  }
+
+  const isFinalRoundWagerOnly =
+    isFinalRoundQuestion &&
+    !match.isFinalQuestionRevealed &&
+    typeof answerPayload.wagerAmount === "number" &&
+    !hasText(answerPayload.answerText) &&
+    !hasText(answerPayload.selectedOption);
+
+  if (isFinalRoundWagerOnly) {
+    const maxWager = Math.floor((team.score || 0) * (question.maxWagerPercent || 50) / 100);
+    if (answerPayload.wagerAmount > maxWager) {
+      throw createHttpError("Wager amount exceeds allowed limit.", 400);
+    }
+  } else {
+    validateAnswerByQuestionType(question, answerPayload, team);
+  }
 
   let answer = await findExistingAnswer(match._id, team._id, match.currentQuestionId);
+  const isFinalWagerAnswer =
+    isFinalRoundQuestion &&
+    match.isFinalQuestionRevealed &&
+    answer &&
+    answer.isLocked &&
+    answer.wagerAmount !== null &&
+    !hasText(answer.answerText) &&
+    (hasText(answerPayload.answerText) || hasText(answerPayload.selectedOption));
 
-  if (answer && answer.isLocked) {
+  if (answer && answer.isLocked && !isFinalWagerAnswer) {
     throw createHttpError("Answer already submitted and locked.", 409);
   }
 
@@ -259,7 +305,7 @@ async function submitAnswer(playerPayload, answerPayload) {
     numericAnswer:
       typeof answerPayload.numericAnswer === "number" ? answerPayload.numericAnswer : null,
     wagerAmount:
-      typeof answerPayload.wagerAmount === "number" ? answerPayload.wagerAmount : null,
+      typeof answerPayload.wagerAmount === "number" ? answerPayload.wagerAmount : answer?.wagerAmount ?? null,
     submittedAnswerDisplay,
     submittedAt: new Date(),
     responseTimeMs: calculateResponseTime(match),

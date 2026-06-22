@@ -29,6 +29,11 @@ const ACTIVE_MATCH_STATUSES = [
   MATCH_STATUS.INTERMISSION,
 ];
 
+const ACTIVE_MATCH_FILTER = {
+  status: { $in: ACTIVE_MATCH_STATUSES },
+  currentState: { $ne: MATCH_CURRENT_STATE.GAME_OVER },
+};
+
 function createHttpError(message, statusCode) {
   const error = new Error(message);
   error.statusCode = statusCode;
@@ -51,6 +56,12 @@ function idsEqual(left, right) {
 
 function isIdInList(list = [], id) {
   return list.some((item) => idsEqual(item, id));
+}
+
+function markCurrentQuestionCompleted(match) {
+  if (match.currentQuestionId) {
+    match.completedQuestionIds.addToSet(match.currentQuestionId);
+  }
 }
 
 function toResponse(document) {
@@ -82,6 +93,7 @@ function toPublicMatchResponse(match) {
     currentState: data.currentState,
     isQuestionOpen: Boolean(data.isQuestionOpen),
     isAnswerRevealed: Boolean(data.isAnswerRevealed),
+    isFinalQuestionRevealed: Boolean(data.isFinalQuestionRevealed),
   };
 }
 
@@ -95,7 +107,7 @@ async function generateUniqueMatchId() {
     const matchId = generateMatchCode(6);
     const existing = await Match.findOne({
       matchId,
-      status: { $in: ACTIVE_MATCH_STATUSES },
+      ...ACTIVE_MATCH_FILTER,
     }).select("_id");
 
     if (!existing) {
@@ -111,7 +123,7 @@ async function generateUniqueEntryCode() {
     const entryCode = generateEntryCode(4);
     const existing = await Match.findOne({
       entryCode,
-      status: { $in: ACTIVE_MATCH_STATUSES },
+      ...ACTIVE_MATCH_FILTER,
     }).select("_id");
 
     if (!existing) {
@@ -148,7 +160,7 @@ async function ensureHostHasNoActiveMatch(host) {
   if (host.currentActiveMatchId) {
     const activeMatch = await Match.findOne({
       _id: host.currentActiveMatchId,
-      status: { $in: ACTIVE_MATCH_STATUSES },
+      ...ACTIVE_MATCH_FILTER,
     }).select("_id");
 
     if (activeMatch) {
@@ -158,7 +170,7 @@ async function ensureHostHasNoActiveMatch(host) {
 
   const existingActiveMatch = await Match.findOne({
     hostId: host._id,
-    status: { $in: ACTIVE_MATCH_STATUSES },
+    ...ACTIVE_MATCH_FILTER,
   }).select("_id");
 
   if (existingActiveMatch) {
@@ -281,6 +293,17 @@ function getNextQuestionPointer(match, game) {
   };
 }
 
+async function isCurrentFinalRoundQuestion(match) {
+  if (!match.currentQuestionId) {
+    return false;
+  }
+
+  const game = await Game.findById(match.gameId).select("finalRound.questionIds").lean();
+  const finalQuestionIds = (game?.finalRound?.questionIds || []).map((questionId) => questionId.toString());
+
+  return finalQuestionIds.includes(match.currentQuestionId.toString());
+}
+
 async function findOwnedMatch(matchDbId, hostId, allowedStatuses = null) {
   ensureMatchObjectId(matchDbId);
 
@@ -350,7 +373,7 @@ async function createMatch(payload, hostId) {
     locationName: location.clientName || location.name,
     hostName: host.name,
     billingMode,
-    defaultMatchPrice: location.defaultMatchPrice || 0,
+    defaultMatchPrice: game.totalPayment || 0,
     currency: location.currency || "usd",
     status: MATCH_STATUS.SETUP,
     scheduledAt: game.scheduledDate || null,
@@ -389,8 +412,12 @@ async function confirmMatch(matchDbId, hostId) {
 async function getMyActiveMatch(hostId) {
   const match = await Match.findOne({
     hostId,
-    status: { $in: ACTIVE_MATCH_STATUSES },
+    ...ACTIVE_MATCH_FILTER,
   }).sort({ createdAt: -1 });
+
+  if (!match) {
+    await Host.findByIdAndUpdate(hostId, { currentActiveMatchId: null });
+  }
 
   return match ? toResponse(match) : null;
 }
@@ -495,6 +522,7 @@ async function startMatch(matchDbId, hostId) {
   match.currentState = MATCH_CURRENT_STATE.QUESTION_CLOSED;
   match.isQuestionOpen = false;
   match.isAnswerRevealed = false;
+  match.isFinalQuestionRevealed = false;
   match.isIntermission = false;
   match.activeIntermissionIndex = null;
   await match.save();
@@ -514,6 +542,7 @@ async function openCurrentQuestion(matchDbId, hostId) {
 
   match.isQuestionOpen = true;
   match.isAnswerRevealed = false;
+  match.isFinalQuestionRevealed = false;
   match.currentState = MATCH_CURRENT_STATE.QUESTION_OPEN;
   match.timerStartedAt = new Date();
   match.timerPausedAt = null;
@@ -545,20 +574,40 @@ async function revealCurrentAnswer(matchDbId, hostId) {
     throw createHttpError("Question not found in game structure.", 404);
   }
 
+  const isFinalRoundQuestion = await isCurrentFinalRoundQuestion(match);
+
   await scoringService.autoGradeQuestion(matchDbId, match.currentQuestionId, hostId);
 
   match.isQuestionOpen = false;
   match.isAnswerRevealed = true;
-  match.currentState = MATCH_CURRENT_STATE.REVIEWING_ANSWERS;
+  match.currentState = isFinalRoundQuestion
+    ? MATCH_CURRENT_STATE.GAME_OVER
+    : MATCH_CURRENT_STATE.REVIEWING_ANSWERS;
+  markCurrentQuestionCompleted(match);
+  if (isFinalRoundQuestion) {
+    match.status = MATCH_STATUS.COMPLETED;
+    match.endedAt = new Date();
+    match.isFinalQuestionRevealed = false;
+    match.isIntermission = false;
+  }
   await match.save();
+
+  if (isFinalRoundQuestion) {
+    await Host.findByIdAndUpdate(hostId, { currentActiveMatchId: null });
+  }
 
   emitMatchEvent(SOCKET_EVENTS.QUESTION_CLOSED, match, toPublicMatchResponse(match));
   emitQuestionStateUpdated(match, toPublicMatchResponse(match));
+  if (isFinalRoundQuestion) {
+    emitMatchEvent(SOCKET_EVENTS.MATCH_ENDED, match, toPublicMatchResponse(match));
+    emitMatchStateUpdated(match, toPublicMatchResponse(match));
+  }
 
   return toResponse(match);
 }
 
-async function advanceToNextQuestion(matchDbId, hostId) {
+async function advanceToNextQuestion(matchDbId, hostId, options = {}) {
+  const { completeCurrent = true } = options;
   const match = await findOwnedMatch(matchDbId, hostId, [
     MATCH_STATUS.LIVE,
     MATCH_STATUS.INTERMISSION,
@@ -571,10 +620,15 @@ async function advanceToNextQuestion(matchDbId, hostId) {
 
   const nextPointer = getNextQuestionPointer(match, game);
 
+  if (completeCurrent) {
+    markCurrentQuestionCompleted(match);
+  }
+
   if (nextPointer.gameOver) {
     match.currentState = MATCH_CURRENT_STATE.GAME_OVER;
     match.isQuestionOpen = false;
     match.isAnswerRevealed = false;
+    match.isFinalQuestionRevealed = false;
     match.isIntermission = false;
     match.activeIntermissionIndex = null;
     match.timerStartedAt = null;
@@ -592,6 +646,7 @@ async function advanceToNextQuestion(matchDbId, hostId) {
     match.isIntermission = true;
     match.isQuestionOpen = false;
     match.isAnswerRevealed = false;
+    match.isFinalQuestionRevealed = false;
     match.activeIntermissionIndex = nextPointer.intermissionIndex;
     await match.save();
 
@@ -607,6 +662,7 @@ async function advanceToNextQuestion(matchDbId, hostId) {
   match.currentState = MATCH_CURRENT_STATE.QUESTION_CLOSED;
   match.isQuestionOpen = false;
   match.isAnswerRevealed = false;
+  match.isFinalQuestionRevealed = false;
   match.isIntermission = false;
   match.activeIntermissionIndex = null;
   match.timerStartedAt = null;
@@ -639,6 +695,7 @@ async function jumpToQuestion(matchDbId, hostId, payload) {
   match.currentState = MATCH_CURRENT_STATE.QUESTION_CLOSED;
   match.isQuestionOpen = false;
   match.isAnswerRevealed = false;
+  match.isFinalQuestionRevealed = false;
   match.isIntermission = false;
   match.activeIntermissionIndex = null;
   await match.save();
@@ -657,7 +714,7 @@ async function skipQuestion(matchDbId, hostId) {
     await match.save();
   }
 
-  return advanceToNextQuestion(matchDbId, hostId);
+  return advanceToNextQuestion(matchDbId, hostId, { completeCurrent: false });
 }
 
 async function startIntermission(matchDbId, hostId, payload) {
@@ -675,10 +732,78 @@ async function startIntermission(matchDbId, hostId, payload) {
   match.isIntermission = true;
   match.isQuestionOpen = false;
   match.isAnswerRevealed = false;
+  match.isFinalQuestionRevealed = false;
   match.activeIntermissionIndex = hasConfiguredIntermission ? payload.intermissionIndex : null;
+  match.pausedState = "";
+  match.pausedQuestionOpen = false;
+  match.pausedAnswerRevealed = false;
   await match.save();
 
   emitMatchEvent(SOCKET_EVENTS.INTERMISSION_STARTED, match, toPublicMatchResponse(match));
+  emitMatchStateUpdated(match, toPublicMatchResponse(match));
+
+  return toResponse(match);
+}
+
+async function revealFinalQuestion(matchDbId, hostId) {
+  const match = await findOwnedMatch(matchDbId, hostId, [MATCH_STATUS.LIVE]);
+
+  if (!match.currentQuestionId) {
+    throw createHttpError("Question not found in game structure.", 404);
+  }
+
+  if (!(await isCurrentFinalRoundQuestion(match))) {
+    throw createHttpError("Reveal question is only available for the final question.", 400);
+  }
+
+  match.isFinalQuestionRevealed = true;
+  await match.save();
+
+  emitMatchEvent(SOCKET_EVENTS.QUESTION_OPENED, match, toPublicMatchResponse(match));
+  emitQuestionStateUpdated(match, toPublicMatchResponse(match));
+
+  return toResponse(match);
+}
+
+async function pauseMatch(matchDbId, hostId) {
+  const match = await findOwnedMatch(matchDbId, hostId, [MATCH_STATUS.LIVE]);
+
+  if (match.isIntermission) {
+    return toResponse(match);
+  }
+
+  match.pausedState = match.currentState;
+  match.pausedQuestionOpen = match.isQuestionOpen;
+  match.pausedAnswerRevealed = match.isAnswerRevealed;
+  match.currentState = MATCH_CURRENT_STATE.INTERMISSION;
+  match.isIntermission = true;
+  match.isQuestionOpen = false;
+  match.isAnswerRevealed = false;
+  match.isFinalQuestionRevealed = false;
+  match.timerPausedAt = new Date();
+  await match.save();
+
+  emitMatchEvent(SOCKET_EVENTS.INTERMISSION_STARTED, match, toPublicMatchResponse(match));
+  emitMatchStateUpdated(match, toPublicMatchResponse(match));
+
+  return toResponse(match);
+}
+
+async function resumeMatch(matchDbId, hostId) {
+  const match = await findOwnedMatch(matchDbId, hostId, [MATCH_STATUS.LIVE]);
+
+  match.currentState = match.pausedState || MATCH_CURRENT_STATE.QUESTION_CLOSED;
+  match.isIntermission = false;
+  match.isQuestionOpen = Boolean(match.pausedQuestionOpen);
+  match.isAnswerRevealed = Boolean(match.pausedAnswerRevealed);
+  match.activeIntermissionIndex = null;
+  match.pausedState = "";
+  match.pausedQuestionOpen = false;
+  match.pausedAnswerRevealed = false;
+  match.timerPausedAt = null;
+  await match.save();
+
+  emitMatchEvent(SOCKET_EVENTS.INTERMISSION_ENDED, match, toPublicMatchResponse(match));
   emitMatchStateUpdated(match, toPublicMatchResponse(match));
 
   return toResponse(match);
@@ -692,6 +817,9 @@ async function endIntermission(matchDbId, hostId) {
   match.isIntermission = false;
   match.isAnswerRevealed = false;
   match.activeIntermissionIndex = null;
+  match.pausedState = "";
+  match.pausedQuestionOpen = false;
+  match.pausedAnswerRevealed = false;
   await match.save();
 
   emitMatchEvent(SOCKET_EVENTS.INTERMISSION_ENDED, match, toPublicMatchResponse(match));
@@ -703,11 +831,11 @@ async function endIntermission(matchDbId, hostId) {
 async function closeMatch(matchDbId, hostId) {
   const match = await findOwnedMatch(matchDbId, hostId);
 
-  if ([MATCH_STATUS.COMPLETED, MATCH_STATUS.CANCELLED].includes(match.status)) {
+  if (match.status === MATCH_STATUS.CANCELLED) {
     throw createHttpError("Match cannot be started from current status.", 400);
   }
 
-  if (match.status !== MATCH_STATUS.CLOSED) {
+  if (![MATCH_STATUS.CLOSED, MATCH_STATUS.COMPLETED].includes(match.status)) {
     if (![MATCH_STATUS.LIVE, MATCH_STATUS.INTERMISSION, MATCH_STATUS.WAITING].includes(match.status)) {
       throw createHttpError("Match cannot be started from current status.", 400);
     }
@@ -717,6 +845,7 @@ async function closeMatch(matchDbId, hostId) {
     match.currentState = MATCH_CURRENT_STATE.GAME_OVER;
     match.isQuestionOpen = false;
     match.isAnswerRevealed = false;
+    match.isFinalQuestionRevealed = false;
     match.isIntermission = false;
     await match.save();
 
@@ -750,6 +879,9 @@ async function closeMatch(matchDbId, hostId) {
           billingStatus: billingResult.transaction.billingStatus,
           currency: billingResult.transaction.currency,
           failureReason: billingResult.transaction.failureReason,
+          receiptEmailDestinations: billingResult.transaction.receiptEmailDestinations || [],
+          receiptSent: Boolean(billingResult.transaction.receiptSent),
+          stripeReceiptUrl: billingResult.transaction.stripeReceiptUrl || "",
           transactionId: billingResult.transaction._id.toString(),
         }
       : {
@@ -774,6 +906,7 @@ async function endMatch(matchDbId, hostId) {
   match.currentState = MATCH_CURRENT_STATE.GAME_OVER;
   match.isQuestionOpen = false;
   match.isAnswerRevealed = false;
+  match.isFinalQuestionRevealed = false;
   match.isIntermission = false;
   await match.save();
 
@@ -805,6 +938,7 @@ async function cancelMatch(matchDbId, user, reason = "") {
   match.currentState = MATCH_CURRENT_STATE.GAME_OVER;
   match.isQuestionOpen = false;
   match.isAnswerRevealed = false;
+  match.isFinalQuestionRevealed = false;
   match.isIntermission = false;
   match.cancelReason = reason || "";
   await match.save();
@@ -900,7 +1034,10 @@ module.exports = {
   getPublicMatchInfo,
   jumpToQuestion,
   openCurrentQuestion,
+  pauseMatch,
   revealCurrentAnswer,
+  revealFinalQuestion,
+  resumeMatch,
   skipQuestion,
   startIntermission,
   startMatch,

@@ -44,7 +44,6 @@ const baseClientFields = {
   cardLast4: Joi.string().trim().pattern(/^\d{4}$/).allow("").default(""),
   cardExpMonth: Joi.number().integer().min(1).max(12).allow(null).default(null),
   cardExpYear: Joi.number().integer().min(2024).allow(null).default(null),
-  defaultMatchPrice: Joi.number().min(0).default(0),
   currency: Joi.string().trim().lowercase().default("usd"),
   assignedHostIds: Joi.array().items(objectId).default([]),
   logoUrl: Joi.string().trim().allow("").default(""),

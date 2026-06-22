@@ -128,6 +128,20 @@ async function revealCurrentAnswer(req, res, next) {
   }
 }
 
+async function revealFinalQuestion(req, res, next) {
+  try {
+    const match = await matchService.revealFinalQuestion(req.params.id, req.user.id);
+
+    return res.status(200).json({
+      success: true,
+      message: "Final question revealed successfully",
+      data: { match },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function advanceToNextQuestion(req, res, next) {
   try {
     const match = await matchService.advanceToNextQuestion(req.params.id, req.user.id);
@@ -193,6 +207,34 @@ async function endIntermission(req, res, next) {
     return res.status(200).json({
       success: true,
       message: "Intermission ended successfully",
+      data: { match },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function pauseMatch(req, res, next) {
+  try {
+    const match = await matchService.pauseMatch(req.params.id, req.user.id);
+
+    return res.status(200).json({
+      success: true,
+      message: "Match paused successfully",
+      data: { match },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function resumeMatch(req, res, next) {
+  try {
+    const match = await matchService.resumeMatch(req.params.id, req.user.id);
+
+    return res.status(200).json({
+      success: true,
+      message: "Match resumed successfully",
       data: { match },
     });
   } catch (error) {
@@ -418,7 +460,10 @@ module.exports = {
   getPublicMatchInfo,
   jumpToQuestion,
   openCurrentQuestion,
+  pauseMatch,
   revealCurrentAnswer,
+  revealFinalQuestion,
+  resumeMatch,
   skipQuestion,
   startIntermission,
   startMatch,

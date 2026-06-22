@@ -16,7 +16,6 @@ const numberFields = new Set([
   "discountValue",
   "cardExpMonth",
   "cardExpYear",
-  "defaultMatchPrice",
 ]);
 
 function parseJson(value) {

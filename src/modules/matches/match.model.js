@@ -131,9 +131,26 @@ const matchSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isFinalQuestionRevealed: {
+      type: Boolean,
+      default: false,
+    },
     activeIntermissionIndex: {
       type: Number,
       default: null,
+    },
+    pausedState: {
+      type: String,
+      enum: [...Object.values(MATCH_CURRENT_STATE), ""],
+      default: "",
+    },
+    pausedQuestionOpen: {
+      type: Boolean,
+      default: false,
+    },
+    pausedAnswerRevealed: {
+      type: Boolean,
+      default: false,
     },
     timerStartedAt: {
       type: Date,
@@ -190,6 +207,12 @@ const matchSchema = new mongoose.Schema(
       default: 0,
     },
     skippedQuestionIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Question",
+      },
+    ],
+    completedQuestionIds: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Question",

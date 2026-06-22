@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const { TEAM_STATUS } = require("../../constants/teamStatus");
 const { getQuestionPoints } = require("../../utils/scoring");
 const Answer = require("../matches/answer.model");
+const Game = require("../games/game.model");
 const Match = require("../matches/match.model");
 const Team = require("../matches/team.model");
 const Question = require("../questions/question.model");
@@ -131,7 +132,7 @@ function getCorrectAnswerDisplay(question) {
   return question.correctAnswer || "";
 }
 
-function safeQuestionData(question, includeAnswer = false) {
+function safeQuestionData(question, includeAnswer = false, extra = {}) {
   if (!question) {
     return null;
   }
@@ -151,6 +152,8 @@ function safeQuestionData(question, includeAnswer = false) {
     imageUrl: question.mediaType === "image" ? question.imageUrl : "",
     options: canShowOptions ? options : [],
     estimatedTimeSeconds: question.estimatedTimeSeconds,
+    isFinalRound: Boolean(extra.isFinalRound),
+    maxWagerPercent: question.maxWagerPercent || 50,
     points: getQuestionPoints(question),
     answer: includeAnswer ? getCorrectAnswerDisplay(question) : "",
   };
@@ -161,13 +164,24 @@ async function getCurrentSafeQuestion(match, includeWhenClosed = false) {
     return null;
   }
 
+  if (match.isIntermission || match.currentState === "intermission") {
+    return null;
+  }
+
   const isVisible = match.isQuestionOpen || match.isAnswerRevealed || includeWhenClosed;
   if (!isVisible) {
     return null;
   }
 
-  const question = await Question.findById(match.currentQuestionId).lean();
-  return safeQuestionData(question, Boolean(match.isAnswerRevealed));
+  const [question, game] = await Promise.all([
+    Question.findById(match.currentQuestionId).lean(),
+    Game.findById(match.gameId).select("finalRound.questionIds").lean(),
+  ]);
+  const finalQuestionIds = (game?.finalRound?.questionIds || []).map((questionId) => questionId.toString());
+
+  return safeQuestionData(question, Boolean(match.isAnswerRevealed), {
+    isFinalRound: finalQuestionIds.includes(match.currentQuestionId.toString()),
+  });
 }
 
 async function getPlayerState(playerPayload) {
@@ -192,7 +206,7 @@ async function getPlayerState(playerPayload) {
           matchDbId: match._id,
           teamId: team._id,
           questionId: match.currentQuestionId,
-        }).select("submittedAnswerDisplay submittedAt isLocked reviewStatus").lean()
+        }).select("answerText wagerAmount submittedAnswerDisplay submittedAt isLocked reviewStatus").lean()
       : null,
   ]);
   const myRank = leaderboard.find((item) => item.teamId === team._id.toString());
@@ -207,6 +221,7 @@ async function getPlayerState(playerPayload) {
     currentQuestionIndex: match.currentQuestionIndex,
     isQuestionOpen: match.isQuestionOpen,
     isAnswerRevealed: Boolean(match.isAnswerRevealed),
+    isFinalQuestionRevealed: Boolean(match.isFinalQuestionRevealed),
     isIntermission: match.isIntermission,
     team: {
       teamId: team._id.toString(),
@@ -220,6 +235,8 @@ async function getPlayerState(playerPayload) {
     currentAnswer: currentAnswer
       ? {
           submittedAnswerDisplay: currentAnswer.submittedAnswerDisplay,
+          answerText: currentAnswer.answerText,
+          wagerAmount: currentAnswer.wagerAmount,
           submittedAt: currentAnswer.submittedAt,
           isLocked: currentAnswer.isLocked,
           reviewStatus: currentAnswer.reviewStatus,
