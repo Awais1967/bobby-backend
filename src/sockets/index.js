@@ -1,12 +1,10 @@
 const { Server } = require("socket.io");
 
+const { getFrontendOrigins } = require("../config/frontendOrigins");
 const { setSocketServer } = require("./match.socket");
 const { registerLeaderboardSocketHandlers } = require("./leaderboard.socket");
 
-const allowedCorsOrigins = (process.env.CORS_ORIGIN || process.env.CLIENT_URL || "http://localhost:5173")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const allowedCorsOrigins = getFrontendOrigins();
 
 function initializeSocket(server) {
   const io = new Server(server, {

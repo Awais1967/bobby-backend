@@ -98,7 +98,16 @@ function toPublicMatchResponse(match) {
 }
 
 function buildJoinUrl(matchId, entryCode) {
-  const baseUrl = (process.env.CLIENT_URL || "http://localhost:3000").replace(/\/$/, "");
+  const configuredUrl = process.env.USER_FRONTEND_URL || process.env.CLIENT_URL;
+
+  if (!configuredUrl) {
+    throw createHttpError("USER_FRONTEND_URL or CLIENT_URL is required.", 500);
+  }
+
+  const baseUrl = configuredUrl
+    .split(",")[0]
+    .trim()
+    .replace(/\/$/, "");
   return `${baseUrl}/join?gameCode=${matchId || entryCode}`;
 }
 

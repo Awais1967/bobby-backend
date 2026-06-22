@@ -1,5 +1,6 @@
 const express = require("express");
 
+const ensureDatabaseConnected = require("../middleware/ensureDatabaseConnected");
 const authRoutes = require("../modules/auth/auth.routes");
 const hostRoutes = require("../modules/hosts/host.routes");
 const locationRoutes = require("../modules/locations/location.routes");
@@ -24,6 +25,8 @@ router.get("/health", (req, res) => {
     status: "ok",
   });
 });
+
+router.use(ensureDatabaseConnected);
 
 router.use("/auth", authRoutes);
 router.use("/hosts", hostRoutes);
