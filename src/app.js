@@ -8,25 +8,25 @@ const path = require("path");
 
 const routes = require("./routes");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
-const { getFrontendOrigins } = require("./config/frontendOrigins");
+const { getFrontendOrigins, normalizeOrigin } = require("./config/frontendOrigins");
 
 const app = express();
 const allowedCorsOrigins = getFrontendOrigins();
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin || allowedCorsOrigins.includes(normalizeOrigin(origin))) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS origin not allowed: ${origin}`));
+  },
+  credentials: true,
+};
 
 app.use(helmet());
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin || allowedCorsOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-
-      callback(new Error(`CORS origin not allowed: ${origin}`));
-    },
-    credentials: true,
-  })
-);
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(compression());
 app.use(cookieParser());
 app.use("/api/billing/webhook", express.raw({ type: "application/json" }));
