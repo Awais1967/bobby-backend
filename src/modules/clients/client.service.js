@@ -69,6 +69,13 @@ function normalizeClientPayload(payload = {}) {
     data.billingContactEmails = normalizeArray(data.billingContactEmails);
   }
 
+  if (data.pricingDiscount === false || !data.discountType) {
+    data.pricingDiscount = false;
+    data.discountType = "";
+    data.discountValue = 0;
+    data.discountDate = null;
+  }
+
   return data;
 }
 
@@ -108,10 +115,14 @@ function ensureClientBilling(payload, existingClient = null) {
   }
 
   if (payload.billingMethod === "card") {
-    const hasPaymentMethod = payload.stripePaymentMethodId || existingClient?.stripePaymentMethodId;
+    const hasCardInfo =
+      payload.stripePaymentMethodId ||
+      existingClient?.stripePaymentMethodId ||
+      payload.cardLast4 ||
+      existingClient?.cardLast4;
 
-    if (!hasPaymentMethod) {
-      throw createHttpError("Stripe payment method is required for card billing.", 400);
+    if (!hasCardInfo) {
+      throw createHttpError("Card details or Stripe payment method is required for card billing.", 400);
     }
   }
 
@@ -145,6 +156,7 @@ function toClientResponse(client, options = {}) {
       clientName: data.clientName,
       venueLocation: data.venueLocation || data.location || data.address,
       city: data.city,
+      state: data.state || "",
       zip: data.zip,
       billingMethod: data.billingMethod,
       billingContactName: data.billingContactName,
@@ -157,6 +169,10 @@ function toClientResponse(client, options = {}) {
       cardExpYear: data.cardExpYear,
       cardLast4: data.cardLast4,
       maskedPaymentMethod: data.maskedPaymentMethod,
+      pricingDiscount: data.pricingDiscount,
+      discountType: data.discountType,
+      discountValue: data.discountValue,
+      discountDate: data.discountDate,
     };
   }
 
@@ -221,12 +237,25 @@ async function uploadClientLogo(file) {
 }
 
 async function ensureStripePaymentSetup(payload, client = null) {
-  if (payload.billingMethod !== "card" || !payload.stripePaymentMethodId || !process.env.STRIPE_SECRET_KEY) {
+  if (
+    payload.billingMethod !== "card" ||
+    !payload.stripePaymentMethodId ||
+    !process.env.STRIPE_SECRET_KEY ||
+    (client && client.stripePaymentMethodId === payload.stripePaymentMethodId && client.stripeCustomerId)
+  ) {
     return {};
   }
 
   const stripe = getStripeClient();
+  let paymentMethod;
+  try {
+    paymentMethod = await stripe.paymentMethods.retrieve(payload.stripePaymentMethodId);
+  } catch (error) {
+    return {};
+  }
+
   const customerId =
+    paymentMethod.customer ||
     client?.stripeCustomerId ||
     (
       await stripe.customers.create({
@@ -238,11 +267,13 @@ async function ensureStripePaymentSetup(payload, client = null) {
       })
     ).id;
 
-  await stripe.paymentMethods.attach(payload.stripePaymentMethodId, {
-    customer: customerId,
-  }).catch((error) => {
-    if (error.code !== "resource_already_exists") throw error;
-  });
+  if (paymentMethod.customer !== customerId) {
+    await stripe.paymentMethods.attach(payload.stripePaymentMethodId, {
+      customer: customerId,
+    }).catch((error) => {
+      if (error.code !== "resource_already_exists") throw error;
+    });
+  }
 
   await stripe.customers.update(customerId, {
     invoice_settings: {
@@ -250,7 +281,6 @@ async function ensureStripePaymentSetup(payload, client = null) {
     },
   });
 
-  const paymentMethod = await stripe.paymentMethods.retrieve(payload.stripePaymentMethodId);
   const card = paymentMethod.card || {};
   const cardBrand = card.brand || payload.cardBrand || "";
   const cardLast4 = card.last4 || payload.cardLast4 || "";

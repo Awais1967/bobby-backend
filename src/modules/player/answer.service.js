@@ -250,6 +250,7 @@ async function submitAnswer(playerPayload, answerPayload) {
     getCurrentQuestion(match),
     isCurrentFinalRoundQuestion(match),
   ]);
+  let answer = await findExistingAnswer(match._id, team._id, match.currentQuestionId);
   if (
     isFinalRoundQuestion &&
     !match.isFinalQuestionRevealed &&
@@ -260,10 +261,10 @@ async function submitAnswer(playerPayload, answerPayload) {
 
   const isFinalRoundWagerOnly =
     isFinalRoundQuestion &&
-    !match.isFinalQuestionRevealed &&
     typeof answerPayload.wagerAmount === "number" &&
     !hasText(answerPayload.answerText) &&
-    !hasText(answerPayload.selectedOption);
+    !hasText(answerPayload.selectedOption) &&
+    (answer?.wagerAmount === null || answer?.wagerAmount === undefined);
 
   if (isFinalRoundWagerOnly) {
     const maxWager = Math.floor((team.score || 0) * (question.maxWagerPercent || 50) / 100);
@@ -274,7 +275,6 @@ async function submitAnswer(playerPayload, answerPayload) {
     validateAnswerByQuestionType(question, answerPayload, team);
   }
 
-  let answer = await findExistingAnswer(match._id, team._id, match.currentQuestionId);
   const isFinalWagerAnswer =
     isFinalRoundQuestion &&
     match.isFinalQuestionRevealed &&

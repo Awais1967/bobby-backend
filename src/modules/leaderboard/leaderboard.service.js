@@ -179,8 +179,16 @@ async function getCurrentSafeQuestion(match, includeWhenClosed = false) {
   ]);
   const finalQuestionIds = (game?.finalRound?.questionIds || []).map((questionId) => questionId.toString());
 
-  return safeQuestionData(question, Boolean(match.isAnswerRevealed), {
-    isFinalRound: finalQuestionIds.includes(match.currentQuestionId.toString()),
+  const isFinalRound = finalQuestionIds.includes(match.currentQuestionId.toString());
+  const safeQuestion = isFinalRound && !match.isFinalQuestionRevealed
+    ? {
+        ...question,
+        questionText: "Final Round Wager",
+      }
+    : question;
+
+  return safeQuestionData(safeQuestion, Boolean(match.isAnswerRevealed), {
+    isFinalRound,
   });
 }
 
@@ -264,6 +272,7 @@ async function getPresentationState(matchId) {
     currentState: match.currentState,
     isQuestionOpen: match.isQuestionOpen,
     isAnswerRevealed: Boolean(match.isAnswerRevealed),
+    isFinalQuestionRevealed: Boolean(match.isFinalQuestionRevealed),
     currentQuestion,
     leaderboard,
   };

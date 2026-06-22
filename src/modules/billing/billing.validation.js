@@ -54,6 +54,7 @@ const clientIdParamValidation = Joi.object({
 
 const saveClientPaymentMethodValidation = Joi.object({
   paymentMethodId: Joi.string().trim().required(),
+  setupIntentId: Joi.string().trim().allow("").default(""),
 });
 
 function validate(schema, payload) {

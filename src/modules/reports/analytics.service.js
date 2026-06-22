@@ -132,6 +132,7 @@ function buildMatchRow(match, transaction) {
     chargedAmount: transaction?.amount ?? match.chargedAmount ?? match.defaultMatchPrice ?? 0,
     currency: transaction?.currency || match.currency || "usd",
     receiptSent: Boolean(transaction?.receiptSent || match.receiptSent),
+    failureReason: transaction?.failureReason || match.billingFailureReason || "",
     receiptEmailDestinations: transaction?.receiptEmailDestinations || match.receiptEmailDestinations || [],
     gameStatus: match.currentState,
     matchStatus: match.status,

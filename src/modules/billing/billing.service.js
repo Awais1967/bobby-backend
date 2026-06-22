@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const { BILLING_MODE, BILLING_STATUS } = require("../../constants/billingStatus");
 const Match = require("../matches/match.model");
 const Location = require("../locations/location.model");
+const Game = require("../games/game.model");
 const Refund = require("./refund.model");
 const Transaction = require("./transaction.model");
 const receiptService = require("./receipt.service");
@@ -87,6 +88,11 @@ function summarizePaymentMethod(paymentMethod) {
   };
 }
 
+function getPaymentMethodCustomerId(paymentMethod) {
+  if (!paymentMethod || !paymentMethod.customer) return "";
+  return typeof paymentMethod.customer === "string" ? paymentMethod.customer : paymentMethod.customer.id;
+}
+
 async function ensureClientStripeCustomer(client) {
   if (client.stripeCustomerId) return client.stripeCustomerId;
 
@@ -103,6 +109,85 @@ async function ensureClientStripeCustomer(client) {
   return customer.id;
 }
 
+async function ensurePaymentMethodAttachedToCustomer(paymentMethodId, customerId) {
+  let paymentMethod = await stripeService.retrievePaymentMethod(paymentMethodId);
+  const attachedCustomerId = getPaymentMethodCustomerId(paymentMethod);
+
+  if (attachedCustomerId && attachedCustomerId !== customerId) {
+    throw createHttpError("Stripe payment method belongs to a different customer.", 400);
+  }
+
+  if (attachedCustomerId === customerId) return paymentMethod;
+
+  paymentMethod = await stripeService.attachPaymentMethod(paymentMethodId, customerId);
+  const nextAttachedCustomerId = getPaymentMethodCustomerId(paymentMethod);
+
+  if (nextAttachedCustomerId && nextAttachedCustomerId !== customerId) {
+    throw createHttpError("Stripe payment method belongs to a different customer.", 400);
+  }
+
+  return paymentMethod;
+}
+
+async function resolvePaymentMethodSetup(client, payload) {
+  if (!payload.setupIntentId) {
+    return {
+      customerId: await ensureClientStripeCustomer(client),
+      paymentMethodId: payload.paymentMethodId,
+    };
+  }
+
+  const setupIntent = await stripeService.retrieveSetupIntent(payload.setupIntentId);
+  const setupClientId = setupIntent.metadata?.triviaGoatClientId || "";
+
+  if (setupClientId && setupClientId !== client._id.toString()) {
+    throw createHttpError("Stripe setup intent belongs to a different client.", 400);
+  }
+
+  if (setupIntent.status !== "succeeded") {
+    throw createHttpError("Stripe card setup is not complete.", 400);
+  }
+
+  const setupPaymentMethodId =
+    typeof setupIntent.payment_method === "string"
+      ? setupIntent.payment_method
+      : setupIntent.payment_method?.id;
+  const setupCustomerId =
+    typeof setupIntent.customer === "string" ? setupIntent.customer : setupIntent.customer?.id;
+
+  if (!setupPaymentMethodId || setupPaymentMethodId !== payload.paymentMethodId) {
+    throw createHttpError("Stripe payment method does not match the setup intent.", 400);
+  }
+
+  if (!setupCustomerId) {
+    throw createHttpError("Stripe setup intent customer is missing.", 400);
+  }
+
+  if (client.stripeCustomerId && client.stripeCustomerId !== setupCustomerId) {
+    throw createHttpError("Stripe setup intent belongs to a different customer.", 400);
+  }
+
+  client.stripeCustomerId = setupCustomerId;
+  await client.save();
+
+  return {
+    customerId: setupCustomerId,
+    paymentMethodId: setupPaymentMethodId,
+  };
+}
+
+async function setDefaultPaymentMethod(customerId, paymentMethodId) {
+  try {
+    return await stripeService.setDefaultPaymentMethod(customerId, paymentMethodId);
+  } catch (error) {
+    const message = String(error.message || "");
+    if (!message.includes("must be attached to the customer")) throw error;
+
+    await ensurePaymentMethodAttachedToCustomer(paymentMethodId, customerId);
+    return stripeService.setDefaultPaymentMethod(customerId, paymentMethodId);
+  }
+}
+
 async function loadMatchAndLocation(matchDbId) {
   ensureObjectId(matchDbId, "Match not found.");
 
@@ -112,11 +197,13 @@ async function loadMatchAndLocation(matchDbId) {
   const location = await Location.findById(match.locationId);
   if (!location) throw createHttpError("Location not found.", 404);
 
-  return { location, match };
+  const game = await Game.findById(match.gameId);
+
+  return { location, match, game };
 }
 
-function resolveBillingTotals(match, location) {
-  const subtotalAmount = match.defaultMatchPrice || location.defaultMatchPrice || 0;
+function resolveBillingTotals(match, location, game = null) {
+  const subtotalAmount = game?.totalPayment || match.defaultMatchPrice || location.defaultMatchPrice || 0;
   if (!subtotalAmount || subtotalAmount <= 0) throw createHttpError("No default match price found.", 400);
 
   let discountAmount = 0;
@@ -139,6 +226,17 @@ function resolveBillingTotals(match, location) {
     taxAmount,
     totalAmount,
   };
+}
+
+async function sendReceiptSafely(transaction) {
+  try {
+    return await receiptService.sendMatchReceipt(transaction);
+  } catch (error) {
+    return {
+      failureReason: error.message || "Receipt email failed to send.",
+      sent: false,
+    };
+  }
 }
 
 function getReceiptDestinations(location, match) {
@@ -170,7 +268,8 @@ async function createTransactionFromMatch(match, billingStatus, location = null)
   const resolvedLocation = location || (await Location.findById(match.locationId));
   if (!resolvedLocation) throw createHttpError("Location not found.", 404);
 
-  const totals = resolveBillingTotals(match, resolvedLocation);
+  const game = await Game.findById(match.gameId);
+  const totals = resolveBillingTotals(match, resolvedLocation, game);
   const existing = await Transaction.findOne({ matchDbId: match._id });
 
   const payload = {
@@ -210,7 +309,7 @@ async function createTransactionFromMatch(match, billingStatus, location = null)
 }
 
 async function chargeClosedMatch(matchDbId, idempotencyKey = null) {
-  const { location, match } = await loadMatchAndLocation(matchDbId);
+  const { location, match, game } = await loadMatchAndLocation(matchDbId);
 
   if (!match.billingMode) throw createHttpError("Billing mode is missing.", 400);
   if (match.billingMode !== BILLING_MODE.AUTO_CHARGE) return markMatchInvoiceLater(matchDbId);
@@ -229,13 +328,14 @@ async function chargeClosedMatch(matchDbId, idempotencyKey = null) {
     return { transaction: existingCharged, alreadyCharged: true };
   }
 
-  const { amount } = resolveBillingTotals(match, location);
-  if (!location.stripeCustomerId) throw createHttpError("Stripe customer is missing for this location.", 400);
-  if (!location.stripePaymentMethodId) throw createHttpError("Stripe payment method is missing for this location.", 400);
+  const { amount } = resolveBillingTotals(match, location, game);
 
   let transaction = await createTransactionFromMatch(match, BILLING_STATUS.PENDING, location);
 
   try {
+    if (!location.stripeCustomerId) throw createHttpError("Stripe customer is missing for this location.", 400);
+    if (!location.stripePaymentMethodId) throw createHttpError("Stripe payment method is missing for this location.", 400);
+
     const paymentIntent = await stripeService.createOffSessionPaymentIntent(
       {
         amount,
@@ -262,7 +362,7 @@ async function chargeClosedMatch(matchDbId, idempotencyKey = null) {
     transaction.chargedAt = new Date();
     transaction.failureReason = "";
 
-    const receiptResult = await receiptService.sendMatchReceipt(transaction);
+    const receiptResult = await sendReceiptSafely(transaction);
     transaction.receiptSent = receiptResult.sent;
     if (!receiptResult.sent) transaction.failureReason = receiptResult.failureReason;
     await transaction.save();
@@ -298,6 +398,11 @@ async function markMatchInvoiceLater(matchDbId) {
   match.billingStatus = BILLING_STATUS.UNPAID;
   match.chargedAmount = 0;
   await match.save();
+
+  const receiptResult = await sendReceiptSafely(transaction);
+  transaction.receiptSent = receiptResult.sent;
+  if (!receiptResult.sent) transaction.failureReason = receiptResult.failureReason;
+  await transaction.save();
 
   return { transaction };
 }
@@ -544,25 +649,15 @@ async function saveClientPaymentMethod(clientId, payload) {
   const client = await Location.findById(clientId);
   if (!client) throw createHttpError("Client not found.", 404);
 
-  const customerId = await ensureClientStripeCustomer(client);
-  let paymentMethod = await stripeService.retrievePaymentMethod(payload.paymentMethodId);
-  const attachedCustomerId = typeof paymentMethod.customer === "string" ? paymentMethod.customer : paymentMethod.customer?.id;
-
-  if (attachedCustomerId && attachedCustomerId !== customerId) {
-    throw createHttpError("Stripe payment method belongs to a different customer.", 400);
-  }
-
-  if (!attachedCustomerId) {
-    paymentMethod = await stripeService.attachPaymentMethod(payload.paymentMethodId, customerId);
-  }
-
-  await stripeService.setDefaultPaymentMethod(customerId, payload.paymentMethodId);
+  const { customerId, paymentMethodId } = await resolvePaymentMethodSetup(client, payload);
+  const paymentMethod = await ensurePaymentMethodAttachedToCustomer(paymentMethodId, customerId);
+  await setDefaultPaymentMethod(customerId, paymentMethodId);
   const paymentSummary = summarizePaymentMethod(paymentMethod);
 
   client.billingMethod = "card";
   client.billingMode = BILLING_MODE.AUTO_CHARGE;
   client.stripeCustomerId = customerId;
-  client.stripePaymentMethodId = payload.paymentMethodId;
+  client.stripePaymentMethodId = paymentMethodId;
   client.cardBrand = paymentSummary.cardBrand;
   client.cardLast4 = paymentSummary.cardLast4;
   client.cardExpMonth = paymentSummary.cardExpMonth;
@@ -604,11 +699,16 @@ async function markInvoicePaid(transactionId, payload) {
   transaction.billingStatus = BILLING_STATUS.CHARGED;
   transaction.paidAt = new Date();
   transaction.adminNote = payload.note || "";
+
+  const receiptResult = await sendReceiptSafely(transaction);
+  transaction.receiptSent = receiptResult.sent;
+  if (!receiptResult.sent) transaction.failureReason = receiptResult.failureReason;
   await transaction.save();
 
   await Match.findByIdAndUpdate(transaction.matchDbId, {
     billingStatus: BILLING_STATUS.CHARGED,
     chargedAmount: transaction.amount,
+    receiptSent: transaction.receiptSent,
   });
 
   return toResponse(transaction);

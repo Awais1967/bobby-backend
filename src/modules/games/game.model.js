@@ -165,6 +165,16 @@ const gameSchema = new mongoose.Schema(
       min: 0,
       default: 0,
     },
+    fullServicePayment: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    quickServicePrice: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
     defaultQuestionTime: {
       type: Number,
       default: 60,

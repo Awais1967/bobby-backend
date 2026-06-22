@@ -54,6 +54,7 @@ async function findRecoveryUser({ email, role }) {
 async function requestPasswordReset({ email, role }) {
   const user = await findRecoveryUser({ email, role });
   let devOtp;
+  let emailError;
 
   if (user && user.status === "active") {
     const otp = String(crypto.randomInt(100000, 1000000));
@@ -73,6 +74,9 @@ async function requestPasswordReset({ email, role }) {
       });
     } catch (error) {
       console.error(`Password reset email delivery failed: ${error.message}`);
+      if (process.env.NODE_ENV !== "production") {
+        emailError = error.message;
+      }
     }
 
     if (
@@ -86,6 +90,7 @@ async function requestPasswordReset({ email, role }) {
   return {
     expiresInSeconds: OTP_EXPIRY_MINUTES * 60,
     ...(devOtp ? { devOtp } : {}),
+    ...(emailError ? { emailError } : {}),
   };
 }
 

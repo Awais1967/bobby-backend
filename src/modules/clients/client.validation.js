@@ -80,7 +80,7 @@ const createClientValidation = Joi.object({
 
 const updateClientValidation = Joi.object({
   ...Object.entries(baseClientFields).reduce((fields, [key, schema]) => {
-    fields[key] = schema.optional();
+    fields[key] = schema.optional().default(() => undefined);
     return fields;
   }, {}),
 })

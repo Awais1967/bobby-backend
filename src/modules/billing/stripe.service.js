@@ -47,6 +47,12 @@ async function retrievePaymentMethod(paymentMethodId) {
   return stripe.paymentMethods.retrieve(paymentMethodId);
 }
 
+async function retrieveSetupIntent(setupIntentId) {
+  const stripe = getStripeClient();
+
+  return stripe.setupIntents.retrieve(setupIntentId);
+}
+
 async function attachPaymentMethod(paymentMethodId, customerId) {
   const stripe = getStripeClient();
 
@@ -116,6 +122,7 @@ module.exports = {
   createRefund,
   createSetupIntent,
   retrievePaymentMethod,
+  retrieveSetupIntent,
   retrieveRefund,
   setDefaultPaymentMethod,
 };

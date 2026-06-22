@@ -304,6 +304,13 @@ async function isCurrentFinalRoundQuestion(match) {
   return finalQuestionIds.includes(match.currentQuestionId.toString());
 }
 
+function isQuestionInFinalRound(game, questionId) {
+  if (!questionId) return false;
+
+  const finalQuestionIds = (game.finalRound?.questionIds || []).map((id) => id.toString());
+  return finalQuestionIds.includes(questionId.toString());
+}
+
 async function findOwnedMatch(matchDbId, hostId, allowedStatuses = null) {
   ensureMatchObjectId(matchDbId);
 
@@ -659,13 +666,16 @@ async function advanceToNextQuestion(matchDbId, hostId, options = {}) {
   match.currentRoundIndex = nextPointer.roundIndex;
   match.currentQuestionIndex = nextPointer.questionIndex;
   match.currentQuestionId = nextPointer.questionId;
-  match.currentState = MATCH_CURRENT_STATE.QUESTION_CLOSED;
-  match.isQuestionOpen = false;
+  const isFinalRoundQuestion = isQuestionInFinalRound(game, nextPointer.questionId);
+  match.currentState = isFinalRoundQuestion
+    ? MATCH_CURRENT_STATE.QUESTION_OPEN
+    : MATCH_CURRENT_STATE.QUESTION_CLOSED;
+  match.isQuestionOpen = isFinalRoundQuestion;
   match.isAnswerRevealed = false;
   match.isFinalQuestionRevealed = false;
   match.isIntermission = false;
   match.activeIntermissionIndex = null;
-  match.timerStartedAt = null;
+  match.timerStartedAt = isFinalRoundQuestion ? new Date() : null;
   match.timerPausedAt = null;
   await match.save();
 
@@ -757,6 +767,11 @@ async function revealFinalQuestion(matchDbId, hostId) {
   }
 
   match.isFinalQuestionRevealed = true;
+  match.isQuestionOpen = true;
+  match.isAnswerRevealed = false;
+  match.currentState = MATCH_CURRENT_STATE.QUESTION_OPEN;
+  match.timerStartedAt = new Date();
+  match.timerPausedAt = null;
   await match.save();
 
   emitMatchEvent(SOCKET_EVENTS.QUESTION_OPENED, match, toPublicMatchResponse(match));
