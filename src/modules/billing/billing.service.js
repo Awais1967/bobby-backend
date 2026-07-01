@@ -36,6 +36,28 @@ function toResponse(document) {
   return data;
 }
 
+async function addBillingContactNames(transactions) {
+  const rows = transactions.map(toResponse);
+  const missingContactRows = rows.filter((row) => row && !row.billingContactName && row.locationId);
+  const locationIds = [...new Set(missingContactRows.map((row) => row.locationId.toString()))];
+
+  if (!locationIds.length) return rows;
+
+  const locations = await Location.find({ _id: { $in: locationIds } })
+    .select("billingContactName clientName name")
+    .lean();
+  const locationMap = new Map(locations.map((location) => [location._id.toString(), location]));
+
+  return rows.map((row) => {
+    const location = locationMap.get(row.locationId?.toString());
+    return {
+      ...row,
+      billingContactName:
+        row.billingContactName || location?.billingContactName || location?.clientName || location?.name || "",
+    };
+  });
+}
+
 function getRefundStatus(stripeRefund) {
   if (!stripeRefund || !stripeRefund.status) return "pending";
   if (stripeRefund.status === "requires_action") return "requires_action";
@@ -446,7 +468,7 @@ async function getTransactions(query) {
   ]);
 
   return {
-    items: items.map(toResponse),
+    items: await addBillingContactNames(items),
     total,
     page: query.page,
     pageSize: query.pageSize,
@@ -675,7 +697,8 @@ async function getTransactionById(id) {
   ensureObjectId(id, "Transaction not found.");
   const transaction = await Transaction.findById(id);
   if (!transaction) throw createHttpError("Transaction not found.", 404);
-  return toResponse(transaction);
+  const [response] = await addBillingContactNames([transaction]);
+  return response;
 }
 
 async function retryTransaction(transactionId) {

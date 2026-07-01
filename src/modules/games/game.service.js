@@ -10,6 +10,13 @@ const {
 
 const minGameRounds = 1;
 const maxGameRounds = 4;
+const searchableGameTypes = [
+  { label: "Weekly", value: "weekly" },
+  { label: "Private", value: "private_event" },
+  { label: "Private Event", value: "private_event" },
+  { label: "Test", value: "test" },
+  { label: "Special", value: "special" },
+];
 
 function createHttpError(message, statusCode) {
   const error = new Error(message);
@@ -38,6 +45,31 @@ function validateFinalRound(finalRound) {
 
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getMatchingGameTypes(search) {
+  const normalizedSearch = String(search || "").trim().toLowerCase();
+
+  if (!normalizedSearch) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      searchableGameTypes
+        .filter(({ label, value }) => {
+          const normalizedLabel = label.toLowerCase();
+          const normalizedValue = value.toLowerCase();
+
+          return (
+            normalizedLabel.includes(normalizedSearch) ||
+            normalizedValue.includes(normalizedSearch) ||
+            normalizedValue.replace(/_/g, " ").includes(normalizedSearch)
+          );
+        })
+        .map(({ value }) => value)
+    ),
+  ];
 }
 
 function getDatePart(value) {
@@ -253,7 +285,13 @@ async function getGames(query) {
 
   if (query.search) {
     const searchRegex = new RegExp(escapeRegex(query.search), "i");
-    filter.$or = [{ title: searchRegex }, { description: searchRegex }];
+    const matchingGameTypes = getMatchingGameTypes(query.search);
+    filter.$or = [
+      { title: searchRegex },
+      { description: searchRegex },
+      { type: searchRegex },
+      ...(matchingGameTypes.length ? [{ type: { $in: matchingGameTypes } }] : []),
+    ];
   }
 
   if (query.status) {

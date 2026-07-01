@@ -216,11 +216,25 @@ async function getQuestions(query) {
 
   if (query.search) {
     const searchRegex = new RegExp(escapeRegex(query.search), "i");
-    filter.$or = [
+    const searchConditions = [
       { questionText: searchRegex },
+      { correctAnswer: searchRegex },
+      { correctAnswers: searchRegex },
+      { "options.text": searchRegex },
+      { orderingAnswer: searchRegex },
+      { fiftyFiftyOptions: searchRegex },
+      { songTitle: searchRegex },
+      { artistName: searchRegex },
       { category: searchRegex },
       { tags: searchRegex },
     ];
+    const numericSearch = Number(query.search);
+
+    if (Number.isFinite(numericSearch)) {
+      searchConditions.push({ numericAnswer: numericSearch });
+    }
+
+    filter.$or = searchConditions;
   }
 
   if (query.category) {
