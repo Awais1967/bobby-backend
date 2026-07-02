@@ -426,6 +426,18 @@ async function confirmMatch(matchDbId, hostId) {
 }
 
 async function getMyActiveMatch(hostId) {
+  const host = await Host.findById(hostId).select("currentActiveMatchId").lean();
+  if (host?.currentActiveMatchId) {
+    const pointedMatch = await Match.findOne({
+      _id: host.currentActiveMatchId,
+      ...ACTIVE_MATCH_FILTER,
+    }).select("_id");
+
+    if (!pointedMatch) {
+      await Host.findByIdAndUpdate(hostId, { currentActiveMatchId: null });
+    }
+  }
+
   const match = await Match.findOne({
     hostId,
     ...ACTIVE_MATCH_FILTER,
