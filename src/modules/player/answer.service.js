@@ -138,6 +138,53 @@ function hasText(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function hasPayloadAnswer(payload) {
+  return (
+    hasText(payload.answerText) ||
+    hasText(payload.selectedOption) ||
+    (Array.isArray(payload.selectedOptions) && payload.selectedOptions.length > 0) ||
+    (Array.isArray(payload.orderingAnswer) && payload.orderingAnswer.length > 0) ||
+    typeof payload.numericAnswer === "number"
+  );
+}
+
+function getPreRevealWagerAmount(payload) {
+  if (typeof payload.wagerAmount === "number") {
+    return payload.wagerAmount;
+  }
+
+  const hasOnlyTextValue =
+    hasText(payload.answerText) &&
+    !hasText(payload.selectedOption) &&
+    (!Array.isArray(payload.selectedOptions) || payload.selectedOptions.length === 0) &&
+    (!Array.isArray(payload.orderingAnswer) || payload.orderingAnswer.length === 0) &&
+    typeof payload.numericAnswer !== "number";
+
+  if (!hasOnlyTextValue) {
+    return null;
+  }
+
+  const wagerAmount = Number(payload.answerText.trim());
+  return Number.isFinite(wagerAmount) ? wagerAmount : null;
+}
+
+function getMaxWagerAmount(question, team) {
+  const maxWagerPercent = Math.min(Number(question.maxWagerPercent) || 50, 50);
+  return Math.floor(((team.score || 0) * maxWagerPercent) / 100);
+}
+
+function validateWagerAmount(question, team, wagerAmount) {
+  if (typeof wagerAmount !== "number" || !Number.isFinite(wagerAmount) || wagerAmount < 0) {
+    throw createHttpError("Wager amount is required.", 400);
+  }
+
+  const maxWager = getMaxWagerAmount(question, team);
+
+  if (wagerAmount > maxWager) {
+    throw createHttpError("Wager amount exceeds allowed limit.", 400);
+  }
+}
+
 function validateAnswerByQuestionType(question, payload, team) {
   const questionType = question.type;
 
@@ -187,11 +234,8 @@ function validateAnswerByQuestionType(question, payload, team) {
       throw createHttpError("Wager amount is required.", 400);
     }
 
-    const maxWagerPercent = question.maxWagerPercent || 50;
-    const maxWager = Math.floor((team.score || 0) * maxWagerPercent / 100);
-
-    if (hasWager && payload.wagerAmount > maxWager) {
-      throw createHttpError("Wager amount exceeds allowed limit.", 400);
+    if (hasWager) {
+      validateWagerAmount(question, team, payload.wagerAmount);
     }
 
     return;
@@ -262,12 +306,27 @@ async function submitAnswer(playerPayload, answerPayload) {
     isCurrentFinalRoundQuestion(match),
   ]);
   let answer = await findExistingAnswer(match._id, team._id, match.currentQuestionId);
-  if (
-    isFinalRoundQuestion &&
-    !match.isFinalQuestionRevealed &&
-    (hasText(answerPayload.answerText) || hasText(answerPayload.selectedOption))
-  ) {
+
+  const isAwaitingFinalQuestionReveal = isFinalRoundQuestion && !match.isFinalQuestionRevealed;
+  const preRevealWagerAmount = isAwaitingFinalQuestionReveal
+    ? getPreRevealWagerAmount(answerPayload)
+    : null;
+  const isPreRevealWagerSubmission = preRevealWagerAmount !== null;
+
+  if (isPreRevealWagerSubmission) {
+    answerPayload = {
+      wagerAmount: preRevealWagerAmount,
+      answerText: "",
+      selectedOption: "",
+      selectedOptions: [],
+      orderingAnswer: [],
+    };
+  } else if (isAwaitingFinalQuestionReveal && hasPayloadAnswer(answerPayload)) {
     throw createHttpError("Final question has not been revealed yet.", 400);
+  }
+
+  if (typeof answerPayload.wagerAmount === "number") {
+    validateWagerAmount(question, team, answerPayload.wagerAmount);
   }
 
   const isFinalRoundWagerOnly =
@@ -275,13 +334,14 @@ async function submitAnswer(playerPayload, answerPayload) {
     typeof answerPayload.wagerAmount === "number" &&
     !hasText(answerPayload.answerText) &&
     !hasText(answerPayload.selectedOption) &&
-    (answer?.wagerAmount === null || answer?.wagerAmount === undefined);
+    (
+      isAwaitingFinalQuestionReveal ||
+      answer?.wagerAmount === null ||
+      answer?.wagerAmount === undefined
+    );
 
   if (isFinalRoundWagerOnly) {
-    const maxWager = Math.floor((team.score || 0) * (question.maxWagerPercent || 50) / 100);
-    if (answerPayload.wagerAmount > maxWager) {
-      throw createHttpError("Wager amount exceeds allowed limit.", 400);
-    }
+    validateWagerAmount(question, team, answerPayload.wagerAmount);
   } else {
     validateAnswerByQuestionType(question, answerPayload, team);
   }
@@ -295,7 +355,7 @@ async function submitAnswer(playerPayload, answerPayload) {
     !hasText(answer.answerText) &&
     (hasText(answerPayload.answerText) || hasText(answerPayload.selectedOption));
 
-  if (answer && answer.isLocked && !isFinalWagerAnswer) {
+  if (answer && answer.isLocked && !isFinalWagerAnswer && !isPreRevealWagerSubmission) {
     throw createHttpError("Answer already submitted and locked.", 409);
   }
 

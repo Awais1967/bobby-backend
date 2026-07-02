@@ -214,7 +214,11 @@ async function getPlayerState(playerPayload) {
           matchDbId: match._id,
           teamId: team._id,
           questionId: match.currentQuestionId,
-        }).select("answerText wagerAmount submittedAnswerDisplay submittedAt isLocked reviewStatus").lean()
+        })
+          .select(
+            "answerText selectedOption selectedOptions orderingAnswer numericAnswer wagerAmount submittedAnswerDisplay submittedAt isLocked reviewStatus"
+          )
+          .lean()
       : null,
   ]);
   const myRank = leaderboard.find((item) => item.teamId === team._id.toString());
@@ -241,9 +245,13 @@ async function getPlayerState(playerPayload) {
     },
     currentQuestion,
     currentAnswer: currentAnswer
-      ? {
+        ? {
           submittedAnswerDisplay: currentAnswer.submittedAnswerDisplay,
           answerText: currentAnswer.answerText,
+          selectedOption: currentAnswer.selectedOption,
+          selectedOptions: currentAnswer.selectedOptions || [],
+          orderingAnswer: currentAnswer.orderingAnswer || [],
+          numericAnswer: currentAnswer.numericAnswer,
           wagerAmount: currentAnswer.wagerAmount,
           submittedAt: currentAnswer.submittedAt,
           isLocked: currentAnswer.isLocked,

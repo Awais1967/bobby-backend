@@ -225,7 +225,17 @@ function getQuestionGroups(game) {
   const groups = Array.isArray(game.rounds) ? [...game.rounds] : [];
 
   if (game.finalRound && Array.isArray(game.finalRound.questionIds)) {
-    groups.push(game.finalRound);
+    const finalRound =
+      typeof game.finalRound.toObject === "function"
+        ? game.finalRound.toObject()
+        : game.finalRound;
+
+    groups.push({
+      ...finalRound,
+      isFinalRound: true,
+      title: finalRound.title || "Final Round",
+      type: finalRound.type || "final",
+    });
   }
 
   return groups;
@@ -283,6 +293,13 @@ function getNextQuestionPointer(match, game) {
     return getQuestionPointerFromGame(game, match.currentRoundIndex, nextQuestionIndex);
   }
 
+  const nextRoundIndex = match.currentRoundIndex + 1;
+  const nextRound = groups[nextRoundIndex];
+
+  if (nextRound?.isFinalRound && nextRound.questionIds?.[0]) {
+    return getQuestionPointerFromGame(game, nextRoundIndex, 0);
+  }
+
   if (match.status !== MATCH_STATUS.INTERMISSION) {
     const intermissionPointer = getIntermissionAfterRound(game, currentRound);
 
@@ -291,9 +308,7 @@ function getNextQuestionPointer(match, game) {
     }
   }
 
-  const nextRoundIndex = match.currentRoundIndex + 1;
-
-  if (groups[nextRoundIndex] && groups[nextRoundIndex].questionIds[0]) {
+  if (nextRound && nextRound.questionIds[0]) {
     return getQuestionPointerFromGame(game, nextRoundIndex, 0);
   }
 
