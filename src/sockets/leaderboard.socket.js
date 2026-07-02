@@ -100,7 +100,9 @@ async function handleJoinTeamRoom(socket, payload) {
 }
 
 async function handleJoinPresentationRoom(socket, payload) {
-  const match = await leaderboardService.validatePresentationAccess(payload.matchId, payload.entryCode);
+  const match = payload.entryCode
+    ? await leaderboardService.validatePresentationAccess(payload.matchId, payload.entryCode)
+    : await leaderboardService.getMatchByPublicId(payload.matchId);
   socket.join(getPresentationRoom(match.matchId));
 }
 

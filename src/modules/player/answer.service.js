@@ -6,6 +6,7 @@ const SOCKET_EVENTS = require("../../constants/socketEvents");
 const { CURRENT_ANSWER_STATUS, TEAM_STATUS } = require("../../constants/teamStatus");
 const { emitTeamEvent } = require("../../sockets/player.socket");
 const { emitAnswerSubmitted } = require("../../sockets/leaderboard.socket");
+const { getQuestionPoints } = require("../../utils/scoring");
 const Answer = require("../matches/answer.model");
 const Game = require("../games/game.model");
 const Match = require("../matches/match.model");
@@ -25,12 +26,20 @@ function ensureObjectId(id, message) {
   }
 }
 
-function toAnswerResponse(answer) {
+function toAnswerResponse(answer, question = null) {
   if (!answer) {
     return null;
   }
 
   const data = typeof answer.toObject === "function" ? answer.toObject() : answer;
+  const storedAwardedPoints = data.awardedPoints || 0;
+  const awardedPoints =
+    data.reviewStatus === REVIEW_STATUS.CORRECT &&
+    storedAwardedPoints === 0 &&
+    typeof data.wagerAmount !== "number" &&
+    question
+      ? getQuestionPoints(question)
+      : storedAwardedPoints;
 
   return {
     id: data._id ? data._id.toString() : data.id,
@@ -52,7 +61,9 @@ function toAnswerResponse(answer) {
     responseTimeMs: data.responseTimeMs,
     status: data.status,
     isLocked: data.isLocked,
+    isCorrect: data.isCorrect,
     reviewStatus: data.reviewStatus,
+    awardedPoints,
   };
 }
 
@@ -375,9 +386,14 @@ async function getMyAnswerHistory(playerPayload, query) {
       teamId: playerPayload.teamId,
     }),
   ]);
+  const questionIds = [...new Set(answers.map((answer) => answer.questionId?.toString()).filter(Boolean))];
+  const questions = questionIds.length
+    ? await Question.find({ _id: { $in: questionIds } }).lean()
+    : [];
+  const questionById = new Map(questions.map((question) => [question._id.toString(), question]));
 
   return {
-    items: answers.map(toAnswerResponse),
+    items: answers.map((answer) => toAnswerResponse(answer, questionById.get(answer.questionId?.toString()))),
     total,
     page: query.page,
     pageSize: query.pageSize,
