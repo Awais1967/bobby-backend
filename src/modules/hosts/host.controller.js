@@ -13,13 +13,14 @@ const {
 async function createHost(req, res, next) {
   try {
     const payload = validate(createHostValidation, req.body);
-    const host = await hostService.createHost(payload);
+    const result = await hostService.createHost(payload);
 
     return res.status(201).json({
       success: true,
       message: "Host created successfully",
       data: {
-        host,
+        host: result.host,
+        emailDelivery: result.emailDelivery,
       },
     });
   } catch (error) {

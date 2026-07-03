@@ -1,8 +1,10 @@
 const mongoose = require("mongoose");
 
 const { MATCH_STATUS } = require("../../constants/matchStatus");
+const Game = require("../games/game.model");
 const Location = require("../locations/location.model");
 const Match = require("../matches/match.model");
+const hostEmailService = require("./host-email.service");
 const Host = require("./host.model");
 
 const ACTIVE_MATCH_STATUSES = [
@@ -76,13 +78,35 @@ async function syncLocationsForHost(hostId, previousLocationIds = [], nextLocati
 async function createHost(payload) {
   await ensureUniqueHostEmail(payload.email);
 
+  const plainPassword = payload.password;
   const host = await Host.create({
     ...payload,
     email: payload.email.toLowerCase(),
   });
   await syncLocationsForHost(host._id, [], host.assignedLocationIds || []);
+  const assignedLocations = await Location.find({
+    _id: { $in: host.assignedLocationIds || [] },
+  }).lean();
 
-  return toHostResponse(host);
+  let emailDelivery = { delivered: false, failureReason: "Email delivery was not attempted." };
+  try {
+    emailDelivery = await hostEmailService.sendHostWelcomeEmail({
+      host,
+      plainPassword,
+      locations: assignedLocations,
+    });
+  } catch (error) {
+    console.error(`Host welcome email delivery failed: ${error.message}`);
+    emailDelivery = {
+      delivered: false,
+      failureReason: error.message,
+    };
+  }
+
+  return {
+    host: toHostResponse(host),
+    emailDelivery,
+  };
 }
 
 async function getHosts(query) {
@@ -229,6 +253,16 @@ async function hasMatchHistory(hostId) {
   return Boolean(match);
 }
 
+async function removeHostAssignments(host) {
+  await Promise.all([
+    syncLocationsForHost(host._id, host.assignedLocationIds || [], []),
+    Game.updateMany(
+      { assignedHostIds: host._id },
+      { $pull: { assignedHostIds: host._id } }
+    ),
+  ]);
+}
+
 async function archiveHost(id, adminId, reason = "") {
   ensureObjectId(id);
 
@@ -290,15 +324,15 @@ async function deleteHost(id, adminId) {
     throw createHttpError("Host cannot be deleted while running an active match.", 400);
   }
 
-  if (await hasMatchHistory(host._id)) {
-    if (host.status !== "archived") {
-      host.status = "archived";
-      host.archivedAt = new Date();
-      host.archivedBy = adminId;
-      host.archiveReason = host.archiveReason || "Archived instead of deleted because host has match history.";
-      host.currentActiveMatchId = null;
-      await host.save();
-    }
+  const hasHistory = await hasMatchHistory(host._id);
+
+  if (hasHistory && host.status !== "archived") {
+    host.status = "archived";
+    host.archivedAt = new Date();
+    host.archivedBy = adminId;
+    host.archiveReason = host.archiveReason || "Archived instead of deleted because host has match history.";
+    host.currentActiveMatchId = null;
+    await host.save();
 
     return {
       archived: true,
@@ -307,7 +341,7 @@ async function deleteHost(id, adminId) {
     };
   }
 
-  await syncLocationsForHost(host._id, host.assignedLocationIds || [], []);
+  await removeHostAssignments(host);
   await host.deleteOne();
 
   return {
