@@ -41,6 +41,7 @@ const baseGameFields = {
   scheduledTime: Joi.string().trim().pattern(timePattern).allow("").default("").messages({
     "string.pattern.base": "Scheduled time must be in HH:mm format.",
   }),
+  scheduledEndDate: Joi.date().iso().allow(null).default(null),
   availableFrom: Joi.date().iso().allow(null).default(null),
   availableTo: Joi.date().iso().allow(null).default(null),
   isRecurring: Joi.boolean().default(false),
@@ -98,6 +99,7 @@ const updateGameValidation = Joi.object({
   scheduledTime: Joi.string().trim().pattern(timePattern).allow("").optional().messages({
     "string.pattern.base": "Scheduled time must be in HH:mm format.",
   }),
+  scheduledEndDate: Joi.date().iso().allow(null).optional(),
   availableFrom: Joi.date().iso().allow(null).optional(),
   availableTo: Joi.date().iso().allow(null).optional(),
   isRecurring: Joi.boolean().optional(),

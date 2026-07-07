@@ -92,30 +92,52 @@ function getTimePart(value) {
 }
 
 function normalizeGameSchedule(payload) {
-  if (!Object.prototype.hasOwnProperty.call(payload, "scheduledDate")) {
+  const hasScheduledDate = Object.prototype.hasOwnProperty.call(payload, "scheduledDate");
+  const hasScheduledEndDate = Object.prototype.hasOwnProperty.call(payload, "scheduledEndDate");
+
+  if (!hasScheduledDate && !hasScheduledEndDate) {
     return payload;
   }
 
-  if (!payload.scheduledDate) {
-    return {
-      ...payload,
-      scheduledDate: null,
-      scheduledTime: payload.scheduledTime || "",
-    };
+  let normalizedPayload = { ...payload };
+
+  if (hasScheduledDate) {
+    if (!payload.scheduledDate) {
+      normalizedPayload = {
+        ...normalizedPayload,
+        scheduledDate: null,
+        scheduledTime: payload.scheduledTime || "",
+        scheduledEndDate: hasScheduledEndDate ? payload.scheduledEndDate : null,
+      };
+    } else {
+      const datePart = getDatePart(payload.scheduledDate);
+      const timePart = payload.scheduledTime || getTimePart(payload.scheduledDate);
+
+      if (datePart && timePart) {
+        normalizedPayload = {
+          ...normalizedPayload,
+          scheduledDate: new Date(`${datePart}T${timePart}:00.000Z`),
+          scheduledTime: timePart,
+        };
+      }
+    }
   }
 
-  const datePart = getDatePart(payload.scheduledDate);
-  const timePart = payload.scheduledTime || getTimePart(payload.scheduledDate);
+  if (hasScheduledEndDate) {
+    normalizedPayload.scheduledEndDate = payload.scheduledEndDate
+      ? new Date(payload.scheduledEndDate)
+      : null;
 
-  if (!datePart || !timePart) {
-    return payload;
+    if (
+      normalizedPayload.scheduledEndDate &&
+      normalizedPayload.scheduledDate &&
+      normalizedPayload.scheduledEndDate <= normalizedPayload.scheduledDate
+    ) {
+      normalizedPayload.scheduledEndDate = null;
+    }
   }
 
-  return {
-    ...payload,
-    scheduledDate: new Date(`${datePart}T${timePart}:00.000Z`),
-    scheduledTime: timePart,
-  };
+  return normalizedPayload;
 }
 
 function ensureGameObjectId(id) {
@@ -274,8 +296,6 @@ async function createGame(payload, adminId) {
     assignedHostIds,
     createdBy: adminId,
   });
-
-  await syncGameCalendarEvent(game);
 
   return toGameResponse(game);
 }

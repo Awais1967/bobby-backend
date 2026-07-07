@@ -99,6 +99,10 @@ const gameSchema = new mongoose.Schema(
       trim: true,
       match: /^$|^([01]\d|2[0-3]):[0-5]\d$/,
     },
+    scheduledEndDate: {
+      type: Date,
+      default: null,
+    },
     availableFrom: {
       type: Date,
       default: null,

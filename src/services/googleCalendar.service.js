@@ -34,6 +34,20 @@ function addHours(value, hours) {
   return date.toISOString();
 }
 
+function getTimedEventEnd(game, scheduledDate) {
+  const scheduledEndDate = game.scheduledEndDate ? new Date(game.scheduledEndDate) : null;
+
+  if (
+    scheduledEndDate &&
+    !Number.isNaN(scheduledEndDate.getTime()) &&
+    scheduledEndDate > scheduledDate
+  ) {
+    return scheduledEndDate.toISOString();
+  }
+
+  return addHours(scheduledDate, 2);
+}
+
 function getGoogleEventDateTime(value) {
   return value?.dateTime || (value?.date ? `${value.date}T00:00:00.000Z` : "");
 }
@@ -91,7 +105,7 @@ function buildEventPayload(game) {
     summary: game.title,
     description: [game.description, `Trivia Goat game status: ${game.status}`].filter(Boolean).join("\n\n"),
     start: hasTime ? { dateTime: scheduledDate.toISOString() } : { date },
-    end: hasTime ? { dateTime: addHours(scheduledDate, 2) } : { date: addOneDay(date) },
+    end: hasTime ? { dateTime: getTimedEventEnd(game, scheduledDate) } : { date: addOneDay(date) },
     extendedProperties: {
       private: {
         triviaGoatGameId: String(game._id || game.id),

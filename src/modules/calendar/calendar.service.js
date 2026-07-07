@@ -19,7 +19,7 @@ const reportService = require("../reports/report.service");
 
 const CALENDAR_GAME_STATUSES = ["draft", "scheduled", "active"];
 const CALENDAR_TEAM_STAGE_LIMIT = 25;
-const CALENDAR_GAME_SELECT = "title description type status scheduledDate scheduledTime availableFrom availableTo isRecurring recurrenceRule isGlobal assignedLocationIds assignedHostIds totalQuestions";
+const CALENDAR_GAME_SELECT = "title description type status scheduledDate scheduledTime scheduledEndDate availableFrom availableTo isRecurring recurrenceRule isGlobal assignedLocationIds assignedHostIds totalQuestions";
 
 function idToString(value) {
   return value ? String(value) : null;
@@ -242,8 +242,10 @@ function formatGameEvent(game) {
     status: game.status,
     date: formatCalendarEventDate(game.scheduledDate),
     startTime: game.scheduledTime || formatReportTime(game.scheduledDate),
+    endTime: game.scheduledEndDate ? formatReportTime(game.scheduledEndDate) : "",
     scheduledDate: game.scheduledDate,
     scheduledTime: game.scheduledTime || "",
+    scheduledEndDate: game.scheduledEndDate,
     availableFrom: game.availableFrom,
     availableTo: game.availableTo,
     isRecurring: Boolean(game.isRecurring),
