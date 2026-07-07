@@ -502,6 +502,7 @@ function toHostQuestionResponse(question) {
     options: question.options || [],
     correctAnswer: question.correctAnswer,
     correctAnswers: question.correctAnswers || [],
+    notes: question.type === "multiple_choice" ? question.notes || "" : "",
     orderingAnswer: question.orderingAnswer || [],
     numericAnswer: question.numericAnswer,
     numericTolerance: question.numericTolerance,

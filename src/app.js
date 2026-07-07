@@ -8,13 +8,12 @@ const path = require("path");
 
 const routes = require("./routes");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
-const { getFrontendOrigins, normalizeOrigin } = require("./config/frontendOrigins");
+const { isFrontendOriginAllowed } = require("./config/frontendOrigins");
 
 const app = express();
-const allowedCorsOrigins = getFrontendOrigins();
 const corsOptions = {
   origin(origin, callback) {
-    if (!origin || allowedCorsOrigins.includes(normalizeOrigin(origin))) {
+    if (isFrontendOriginAllowed(origin)) {
       callback(null, true);
       return;
     }

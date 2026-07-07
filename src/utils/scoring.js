@@ -32,16 +32,39 @@ function isOpenTextExactCorrect(question, answer) {
     ...(Array.isArray(question.correctAnswers) ? question.correctAnswers : []),
   ].filter(Boolean);
 
+  if (Array.isArray(question.correctAnswers) && question.correctAnswers.filter(Boolean).length > 1) {
+    const expectedParts = question.correctAnswers.filter(Boolean).map(normalizeAnswer);
+    const submittedParts = String(answer.answerText || answer.selectedOption || "")
+      .split("|")
+      .map(normalizeAnswer)
+      .filter(Boolean);
+
+    if (submittedParts.length >= expectedParts.length) {
+      return expectedParts.every((expected, index) => submittedParts[index] === expected);
+    }
+  }
+
   return possibleAnswers.some((candidate) => normalizeAnswer(candidate) === submitted);
 }
 
 function isNumericCorrect(question, answer) {
-  if (typeof answer.numericAnswer !== "number" || typeof question.numericAnswer !== "number") {
+  if (typeof answer.numericAnswer !== "number") {
     return false;
   }
 
   const tolerance = typeof question.numericTolerance === "number" ? question.numericTolerance : 0;
-  return Math.abs(answer.numericAnswer - question.numericAnswer) <= tolerance;
+  const possibleAnswers = [
+    question.numericAnswer,
+    ...(Array.isArray(question.correctAnswers) ? question.correctAnswers : []),
+  ]
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+
+  if (possibleAnswers.length === 0) {
+    return false;
+  }
+
+  return possibleAnswers.some((candidate) => Math.abs(answer.numericAnswer - candidate) <= tolerance);
 }
 
 function calculateSpeedBonus(question, responseTimeMs) {

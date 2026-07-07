@@ -9,6 +9,19 @@ function normalizeOrigin(origin = "") {
   return origin.trim().replace(/\/$/, "");
 }
 
+function isLocalhostOrigin(origin = "") {
+  try {
+    const url = new URL(origin);
+    return (
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "::1"].includes(url.hostname) &&
+      Boolean(url.port)
+    );
+  } catch {
+    return false;
+  }
+}
+
 const DEFAULT_FRONTEND_ORIGINS = [
   "http://localhost:5173",
   "http://localhost:5174",
@@ -29,7 +42,15 @@ function getFrontendOrigins() {
   ].filter((origin, index, origins) => origins.indexOf(origin) === index);
 }
 
+function isFrontendOriginAllowed(origin) {
+  if (!origin) return true;
+
+  const normalizedOrigin = normalizeOrigin(origin);
+  return getFrontendOrigins().includes(normalizedOrigin) || isLocalhostOrigin(normalizedOrigin);
+}
+
 module.exports = {
   getFrontendOrigins,
+  isFrontendOriginAllowed,
   normalizeOrigin,
 };

@@ -155,7 +155,9 @@ function safeQuestionData(question, includeAnswer = false, extra = {}) {
     isFinalRound: Boolean(extra.isFinalRound),
     maxWagerPercent: question.maxWagerPercent || 50,
     points: getQuestionPoints(question),
+    answerCount: Math.max((question.correctAnswers || []).filter(Boolean).length, 1),
     answer: includeAnswer ? getCorrectAnswerDisplay(question) : "",
+    notes: includeAnswer && question.type === "multiple_choice" ? question.notes || "" : "",
   };
 }
 

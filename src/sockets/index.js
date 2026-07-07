@@ -1,15 +1,20 @@
 const { Server } = require("socket.io");
 
-const { getFrontendOrigins } = require("../config/frontendOrigins");
+const { isFrontendOriginAllowed } = require("../config/frontendOrigins");
 const { setSocketServer } = require("./match.socket");
 const { registerLeaderboardSocketHandlers } = require("./leaderboard.socket");
-
-const allowedCorsOrigins = getFrontendOrigins();
 
 function initializeSocket(server) {
   const io = new Server(server, {
     cors: {
-      origin: allowedCorsOrigins,
+      origin(origin, callback) {
+        if (isFrontendOriginAllowed(origin)) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error(`Socket CORS origin not allowed: ${origin}`));
+      },
       credentials: true,
     },
   });
