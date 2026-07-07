@@ -182,7 +182,7 @@ async function updateHost(id, payload) {
     throw createHttpError("Only archived hosts can be restored.", 400);
   }
 
-  const allowedFields = ["name", "phone", "status", "assignedLocationIds"];
+  const allowedFields = ["name", "phone", "avatarUrl", "status", "assignedLocationIds"];
   const previousLocationIds = host.assignedLocationIds || [];
   const shouldSyncLocations = Object.prototype.hasOwnProperty.call(
     payload,

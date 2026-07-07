@@ -10,6 +10,7 @@ const createHostValidation = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(8).required(),
   phone: Joi.string().trim().allow("").optional(),
+  avatarUrl: Joi.string().trim().allow("").max(750000).optional(),
   status: Joi.string().valid(...editableStatusValues).default("active"),
   assignedLocationIds: Joi.array().items(Joi.string().pattern(objectIdPattern)).default([]),
 });
@@ -17,6 +18,7 @@ const createHostValidation = Joi.object({
 const updateHostValidation = Joi.object({
   name: Joi.string().trim().optional(),
   phone: Joi.string().trim().allow("").optional(),
+  avatarUrl: Joi.string().trim().allow("").max(750000).optional(),
   status: Joi.string().valid(...editableStatusValues).optional(),
   assignedLocationIds: Joi.array().items(Joi.string().pattern(objectIdPattern)).optional(),
 })
