@@ -5,6 +5,7 @@ const {
   MATCH_CURRENT_STATE,
   MATCH_STATUS,
 } = require("../../constants/matchStatus");
+const { TEAM_STATUS } = require("../../constants/teamStatus");
 const SOCKET_EVENTS = require("../../constants/socketEvents");
 const {
   emitMatchStateUpdated,
@@ -19,7 +20,9 @@ const Host = require("../hosts/host.model");
 const Location = require("../locations/location.model");
 const billingService = require("../billing/billing.service");
 const Question = require("../questions/question.model");
+const Answer = require("./answer.model");
 const Match = require("./match.model");
+const Team = require("./team.model");
 const scoringService = require("./scoring.service");
 
 const ACTIVE_MATCH_STATUSES = [
@@ -333,6 +336,33 @@ function isQuestionInFinalRound(game, questionId) {
 
   const finalQuestionIds = (game.finalRound?.questionIds || []).map((id) => id.toString());
   return finalQuestionIds.includes(questionId.toString());
+}
+
+async function getFinalWagerProgress(match) {
+  const activeTeams = await Team.find({
+    matchDbId: match._id,
+    status: { $ne: TEAM_STATUS.REMOVED },
+  }).select("_id");
+  const teamIds = activeTeams.map((team) => team._id);
+
+  if (teamIds.length === 0) {
+    return {
+      submittedCount: 0,
+      totalTeams: 0,
+    };
+  }
+
+  const submittedCount = await Answer.countDocuments({
+    matchDbId: match._id,
+    questionId: match.currentQuestionId,
+    teamId: { $in: teamIds },
+    wagerAmount: { $type: "number" },
+  });
+
+  return {
+    submittedCount,
+    totalTeams: teamIds.length,
+  };
 }
 
 async function findOwnedMatch(matchDbId, hostId, allowedStatuses = null) {
@@ -705,14 +735,14 @@ async function advanceToNextQuestion(matchDbId, hostId, options = {}) {
   match.currentQuestionId = nextPointer.questionId;
   const isFinalRoundQuestion = isQuestionInFinalRound(game, nextPointer.questionId);
   match.currentState = isFinalRoundQuestion
-    ? MATCH_CURRENT_STATE.QUESTION_OPEN
+    ? MATCH_CURRENT_STATE.FINAL_WAGER
     : MATCH_CURRENT_STATE.QUESTION_CLOSED;
   match.isQuestionOpen = isFinalRoundQuestion;
   match.isAnswerRevealed = false;
   match.isFinalQuestionRevealed = false;
   match.isIntermission = false;
   match.activeIntermissionIndex = null;
-  match.timerStartedAt = isFinalRoundQuestion ? new Date() : null;
+  match.timerStartedAt = null;
   match.timerPausedAt = null;
   await match.save();
 
@@ -739,8 +769,11 @@ async function jumpToQuestion(matchDbId, hostId, payload) {
   match.currentRoundIndex = pointer.roundIndex;
   match.currentQuestionIndex = pointer.questionIndex;
   match.currentQuestionId = pointer.questionId;
-  match.currentState = MATCH_CURRENT_STATE.QUESTION_CLOSED;
-  match.isQuestionOpen = false;
+  const isFinalRoundQuestion = isQuestionInFinalRound(game, pointer.questionId);
+  match.currentState = isFinalRoundQuestion
+    ? MATCH_CURRENT_STATE.FINAL_WAGER
+    : MATCH_CURRENT_STATE.QUESTION_CLOSED;
+  match.isQuestionOpen = isFinalRoundQuestion;
   match.isAnswerRevealed = false;
   match.isFinalQuestionRevealed = false;
   match.isIntermission = false;
@@ -803,10 +836,15 @@ async function revealFinalQuestion(matchDbId, hostId) {
     throw createHttpError("Reveal question is only available for the final question.", 400);
   }
 
+  const wagerProgress = await getFinalWagerProgress(match);
+  if (wagerProgress.totalTeams > 0 && wagerProgress.submittedCount < wagerProgress.totalTeams) {
+    throw createHttpError("Waiting for all player wagers before revealing the final question.", 400);
+  }
+
   match.isFinalQuestionRevealed = true;
   match.isQuestionOpen = true;
   match.isAnswerRevealed = false;
-  match.currentState = MATCH_CURRENT_STATE.QUESTION_OPEN;
+  match.currentState = MATCH_CURRENT_STATE.FINAL_QUESTION;
   match.timerStartedAt = new Date();
   match.timerPausedAt = null;
   await match.save();

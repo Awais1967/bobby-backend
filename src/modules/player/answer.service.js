@@ -111,11 +111,12 @@ function ensureMatchQuestionIsOpen(match) {
     throw createHttpError("Question is not open for submissions.", 400);
   }
 
-  if (
-    match.currentState !== MATCH_CURRENT_STATE.QUESTION_OPEN ||
-    !match.isQuestionOpen ||
-    !match.currentQuestionId
-  ) {
+  const isOpenForSubmission =
+    match.currentState === MATCH_CURRENT_STATE.QUESTION_OPEN ||
+    match.currentState === MATCH_CURRENT_STATE.FINAL_WAGER ||
+    match.currentState === MATCH_CURRENT_STATE.FINAL_QUESTION;
+
+  if (!isOpenForSubmission || !match.isQuestionOpen || !match.currentQuestionId) {
     throw createHttpError(match.currentQuestionId ? "Question is not open for submissions." : "No current question found.", 400);
   }
 }
