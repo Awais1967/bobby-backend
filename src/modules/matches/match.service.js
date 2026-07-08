@@ -655,27 +655,16 @@ async function revealCurrentAnswer(matchDbId, hostId) {
   match.isQuestionOpen = false;
   match.isAnswerRevealed = true;
   match.currentState = isFinalRoundQuestion
-    ? MATCH_CURRENT_STATE.GAME_OVER
+    ? MATCH_CURRENT_STATE.FINAL_ANSWER
     : MATCH_CURRENT_STATE.REVIEWING_ANSWERS;
   markCurrentQuestionCompleted(match);
   if (isFinalRoundQuestion) {
-    match.status = MATCH_STATUS.COMPLETED;
-    match.endedAt = new Date();
-    match.isFinalQuestionRevealed = false;
     match.isIntermission = false;
   }
   await match.save();
 
-  if (isFinalRoundQuestion) {
-    await Host.findByIdAndUpdate(hostId, { currentActiveMatchId: null });
-  }
-
   emitMatchEvent(SOCKET_EVENTS.QUESTION_CLOSED, match, toPublicMatchResponse(match));
   emitQuestionStateUpdated(match, toPublicMatchResponse(match));
-  if (isFinalRoundQuestion) {
-    emitMatchEvent(SOCKET_EVENTS.MATCH_ENDED, match, toPublicMatchResponse(match));
-    emitMatchStateUpdated(match, toPublicMatchResponse(match));
-  }
 
   return toResponse(match);
 }
