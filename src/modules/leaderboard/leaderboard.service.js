@@ -157,7 +157,7 @@ function safeQuestionData(question, includeAnswer = false, extra = {}) {
     points: getQuestionPoints(question),
     answerCount: Math.max((question.correctAnswers || []).filter(Boolean).length, 1),
     answer: includeAnswer ? getCorrectAnswerDisplay(question) : "",
-    notes: includeAnswer && question.type === "multiple_choice" ? question.notes || "" : "",
+    notes: includeAnswer ? question.notes || question.explanation || "" : "",
   };
 }
 
