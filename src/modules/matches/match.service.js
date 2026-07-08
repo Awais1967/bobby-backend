@@ -519,6 +519,13 @@ async function getMatchById(matchDbId, user) {
 function toHostQuestionResponse(question) {
   if (!question) return null;
 
+  const answerNotes =
+    question.notes ||
+    question.explanation ||
+    question.answerNotes ||
+    question.answerExplanation ||
+    "";
+
   return {
     id: question._id.toString(),
     questionText: question.questionText,
@@ -532,7 +539,8 @@ function toHostQuestionResponse(question) {
     options: question.options || [],
     correctAnswer: question.correctAnswer,
     correctAnswers: question.correctAnswers || [],
-    notes: question.notes || question.explanation || "",
+    explanation: answerNotes,
+    notes: answerNotes,
     orderingAnswer: question.orderingAnswer || [],
     numericAnswer: question.numericAnswer,
     numericTolerance: question.numericTolerance,

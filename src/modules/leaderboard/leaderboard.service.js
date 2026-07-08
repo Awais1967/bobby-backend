@@ -137,6 +137,12 @@ function safeQuestionData(question, includeAnswer = false, extra = {}) {
     return null;
   }
 
+  const answerNotes =
+    question.notes ||
+    question.explanation ||
+    question.answerNotes ||
+    question.answerExplanation ||
+    "";
   const canShowOptions = ["multiple_choice", "fifty_fifty", "ordering"].includes(question.type);
   const options =
     question.type === "fifty_fifty"
@@ -157,7 +163,8 @@ function safeQuestionData(question, includeAnswer = false, extra = {}) {
     points: getQuestionPoints(question),
     answerCount: Math.max((question.correctAnswers || []).filter(Boolean).length, 1),
     answer: includeAnswer ? getCorrectAnswerDisplay(question) : "",
-    notes: includeAnswer ? question.notes || question.explanation || "" : "",
+    explanation: includeAnswer ? answerNotes : "",
+    notes: includeAnswer ? answerNotes : "",
   };
 }
 

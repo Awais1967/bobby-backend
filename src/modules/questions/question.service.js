@@ -91,8 +91,14 @@ function toHostSafeQuestionResponse(question) {
     return null;
   }
 
-  // Remove internal notes
-  delete data.notes;
+  const answerNotes =
+    data.notes ||
+    data.explanation ||
+    data.answerNotes ||
+    data.answerExplanation ||
+    "";
+  data.explanation = answerNotes;
+  data.notes = answerNotes;
 
   // Clean unnecessary answer keys that are not related to this question type
   cleanUnnecessaryAnswerKeys(data);
