@@ -259,6 +259,35 @@ async function applyAnswerReview(match, answer, team, question, hostId, payload)
   };
 }
 
+async function reverseAnswerScoreForReopen(match, answer, team, hostId) {
+  const pointsChange = -(Number(answer.awardedPoints) || 0);
+  const { previousScore, newScore } = applyScoreChange(team, pointsChange);
+  await team.save();
+
+  const scoreLog = await createScoreLog({
+    matchDbId: match._id,
+    matchId: match.matchId,
+    teamId: team._id,
+    teamName: team.teamName,
+    questionId: answer.questionId,
+    answerId: answer._id,
+    actionType: SCORE_ACTION_TYPES.ANSWER_CLEARED,
+    pointsChange: newScore - previousScore,
+    previousScore,
+    newScore,
+    reason: "Answer cleared to allow resubmission",
+    note: "Previous awarded points reversed",
+    performedBy: hostId,
+    performedByRole: "host",
+  });
+
+  await updateTeamRanks(match._id);
+  const updatedTeam = await Team.findById(team._id);
+  emitScoreEvents(match, updatedTeam, scoreLog, answer);
+
+  return { pointsChange: newScore - previousScore, scoreLog, team: updatedTeam };
+}
+
 async function reviewAnswer(matchDbId, answerId, hostId, payload) {
   const match = await ensureHostOwnsMatch(hostId, matchDbId);
   const answer = await ensureAnswerBelongsToMatch(answerId, matchDbId);
@@ -624,6 +653,7 @@ module.exports = {
   getScoreLogs,
   overrideTeamScore,
   reviewAnswer,
+  reverseAnswerScoreForReopen,
   setTeamBonusScore,
   updateTeamRanks,
 };

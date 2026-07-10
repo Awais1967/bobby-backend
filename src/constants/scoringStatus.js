@@ -2,6 +2,7 @@ const SCORE_ACTION_TYPES = Object.freeze({
   ANSWER_CORRECT: "answer_correct",
   ANSWER_INCORRECT: "answer_incorrect",
   ANSWER_PARTIAL: "answer_partial",
+  ANSWER_CLEARED: "answer_cleared",
   MANUAL_ADD: "manual_add",
   MANUAL_DEDUCT: "manual_deduct",
   BONUS_SET: "bonus_set",

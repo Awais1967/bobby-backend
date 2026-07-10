@@ -536,10 +536,7 @@ async function getMyAnswerHistory(playerPayload, query) {
 async function reopenAnswer(matchDbId, answerId, hostId) {
   ensureObjectId(answerId, "Answer not found.");
   const match = await playerService.ensureHostOwnsMatch(hostId, matchDbId);
-
-  if (match.status !== MATCH_STATUS.LIVE) {
-    throw createHttpError("Question is not open for submissions.", 400);
-  }
+  ensureMatchQuestionIsOpen(match);
 
   const answer = await Answer.findOne({ _id: answerId, matchDbId });
 
@@ -547,12 +544,38 @@ async function reopenAnswer(matchDbId, answerId, hostId) {
     throw createHttpError("Answer not found.", 404);
   }
 
+  if (answer.questionId.toString() !== match.currentQuestionId.toString()) {
+    throw createHttpError("Only an answer for the current open question can be cleared.", 400);
+  }
+
+  if (answer.status === ANSWER_STATUS.REOPENED && !answer.isLocked) {
+    return toHostAnswerResponse(answer);
+  }
+
+  const team = await Team.findById(answer.teamId);
+  if (!team) {
+    throw createHttpError("Team not found.", 404);
+  }
+
+  const scoringService = require("../matches/scoring.service");
+  await scoringService.reverseAnswerScoreForReopen(match, answer, team, hostId);
+
   answer.status = ANSWER_STATUS.REOPENED;
   answer.gaveUp = false;
-  if (answer.submittedAnswerDisplay === "xxxxx") {
-    answer.submittedAnswerDisplay = "";
-  }
+  answer.answerText = "";
+  answer.selectedOption = "";
+  answer.selectedOptions = [];
+  answer.orderingAnswer = [];
+  answer.numericAnswer = null;
+  answer.wagerAmount = null;
+  answer.submittedAnswerDisplay = "";
   answer.isLocked = false;
+  answer.reviewStatus = REVIEW_STATUS.PENDING;
+  answer.isCorrect = null;
+  answer.awardedPoints = 0;
+  answer.reviewedBy = null;
+  answer.reviewedAt = null;
+  answer.hostNote = "";
   answer.reopenedByHost = hostId;
   answer.reopenedAt = new Date();
   await answer.save();
