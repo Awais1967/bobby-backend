@@ -69,6 +69,12 @@ router.patch(
   requireRole(ROLES.HOST),
   scoringController.overrideTeamScore
 );
+router.patch(
+  "/:id/teams/:teamId/score/bonus",
+  authMiddleware,
+  requireRole(ROLES.HOST),
+  scoringController.setTeamBonusScore
+);
 router.get("/:id/score-logs", authMiddleware, requireRole(ROLES.HOST), scoringController.getScoreLogs);
 router.get("/:id/questions", authMiddleware, requireRole(ROLES.HOST), matchController.getOwnedMatchQuestions);
 router.get(

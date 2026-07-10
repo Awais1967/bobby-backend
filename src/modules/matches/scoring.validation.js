@@ -58,6 +58,18 @@ const overrideScoreValidation = Joi.object({
   note: Joi.string().trim().allow("").optional(),
 });
 
+const setBonusScoreValidation = Joi.object({
+  bonusPoints: Joi.number().min(0).required().messages({
+    "number.min": "Bonus points must be 0 or greater.",
+    "any.required": "Bonus points are required.",
+  }),
+  reason: Joi.string().trim().required().messages({
+    "any.required": "Reason is required for bonus score changes.",
+    "string.empty": "Reason is required for bonus score changes.",
+  }),
+  note: Joi.string().trim().allow("").optional(),
+});
+
 const getScoreLogsQueryValidation = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   pageSize: Joi.number().integer().min(1).max(100).default(10),
@@ -88,5 +100,6 @@ module.exports = {
   manualDeductScoreValidation,
   overrideScoreValidation,
   reviewAnswerValidation,
+  setBonusScoreValidation,
   validate,
 };

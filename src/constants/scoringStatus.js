@@ -4,6 +4,7 @@ const SCORE_ACTION_TYPES = Object.freeze({
   ANSWER_PARTIAL: "answer_partial",
   MANUAL_ADD: "manual_add",
   MANUAL_DEDUCT: "manual_deduct",
+  BONUS_SET: "bonus_set",
   WAGER_CORRECT: "wager_correct",
   WAGER_INCORRECT: "wager_incorrect",
   SPEED_BONUS: "speed_bonus",

@@ -6,6 +6,7 @@ const {
   manualDeductScoreValidation,
   overrideScoreValidation,
   reviewAnswerValidation,
+  setBonusScoreValidation,
   validate,
 } = require("./scoring.validation");
 
@@ -118,6 +119,26 @@ async function overrideTeamScore(req, res, next) {
   }
 }
 
+async function setTeamBonusScore(req, res, next) {
+  try {
+    const payload = validate(setBonusScoreValidation, req.body);
+    const data = await scoringService.setTeamBonusScore(
+      req.params.id,
+      req.params.teamId,
+      req.user.id,
+      payload
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Bonus points updated",
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function getScoreLogs(req, res, next) {
   try {
     const query = validate(getScoreLogsQueryValidation, req.query);
@@ -154,4 +175,5 @@ module.exports = {
   getScoreLogs,
   overrideTeamScore,
   reviewAnswer,
+  setTeamBonusScore,
 };

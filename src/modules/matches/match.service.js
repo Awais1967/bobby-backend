@@ -244,6 +244,36 @@ function getQuestionGroups(game) {
   return groups;
 }
 
+function getRoundOrder(round, fallbackIndex) {
+  if (typeof round?.sortOrder === "number") return round.sortOrder;
+  if (typeof round?.roundNumber === "number") return round.roundNumber;
+  return fallbackIndex;
+}
+
+function isRegularRound(round) {
+  return Boolean(
+    round &&
+      !round.isFinalRound &&
+      ["regular", "standard"].includes(String(round.type || "").toLowerCase())
+  );
+}
+
+function hasRegularRoundAfter(game, currentRound) {
+  if (!isRegularRound(currentRound)) {
+    return false;
+  }
+
+  const orderedRounds = getQuestionGroups(game)
+    .filter((round) => !round.isFinalRound)
+    .sort((firstRound, secondRound) => getRoundOrder(firstRound, 0) - getRoundOrder(secondRound, 0));
+  const currentOrder = getRoundOrder(currentRound, -1);
+  const currentRoundIndex = orderedRounds.findIndex(
+    (round, index) => getRoundOrder(round, index) === currentOrder
+  );
+
+  return currentRoundIndex >= 0 && isRegularRound(orderedRounds[currentRoundIndex + 1]);
+}
+
 function getQuestionPointerFromGame(game, roundIndex, questionIndex) {
   const groups = getQuestionGroups(game);
   const round = groups[roundIndex];
@@ -261,19 +291,29 @@ function getQuestionPointerFromGame(game, roundIndex, questionIndex) {
 }
 
 function getIntermissionAfterRound(game, round) {
-  if (!round || !Array.isArray(game.intermissions)) {
+  if (!round) {
+    return null;
+  }
+
+  if (!hasRegularRoundAfter(game, round)) {
     return null;
   }
 
   const roundNumber = round.roundNumber;
-  const index = game.intermissions.findIndex((intermission) => intermission.afterRound === roundNumber);
+  const intermissions = Array.isArray(game.intermissions) ? game.intermissions : [];
+  const index = intermissions.findIndex((intermission) => intermission.afterRound === roundNumber);
 
   if (index === -1) {
-    return null;
+    return {
+      intermission: {
+        afterRound: roundNumber,
+      },
+      intermissionIndex: null,
+    };
   }
 
   return {
-    intermission: game.intermissions[index],
+    intermission: intermissions[index],
     intermissionIndex: index,
   };
 }

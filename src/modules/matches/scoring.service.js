@@ -56,6 +56,7 @@ function toObject(document) {
 
 function toTeamScore(team) {
   return {
+    bonusPoints: team.bonusPoints || 0,
     teamId: team._id ? team._id.toString() : team.id,
     teamName: team.teamName,
     score: team.score || 0,
@@ -497,6 +498,49 @@ async function overrideTeamScore(matchDbId, teamId, hostId, payload) {
   };
 }
 
+async function setTeamBonusScore(matchDbId, teamId, hostId, payload) {
+  const match = await ensureHostOwnsMatch(hostId, matchDbId);
+  const team = await ensureTeamBelongsToMatch(teamId, matchDbId);
+  const previousScore = team.score || 0;
+  const previousBonusPoints = team.bonusPoints || 0;
+  const nextBonusPoints = Math.max(0, Number(payload.bonusPoints) || 0);
+  const pointsChange = nextBonusPoints - previousBonusPoints;
+  const newScore = Math.max(0, previousScore + pointsChange);
+
+  team.bonusPoints = nextBonusPoints;
+  team.score = newScore;
+  await team.save();
+
+  const scoreLog = await createScoreLog({
+    matchDbId: match._id,
+    matchId: match.matchId,
+    teamId: team._id,
+    teamName: team.teamName,
+    questionId: null,
+    answerId: null,
+    actionType: SCORE_ACTION_TYPES.BONUS_SET,
+    pointsChange,
+    previousScore,
+    newScore,
+    reason: payload.reason,
+    note: payload.note || "",
+    performedBy: hostId,
+    performedByRole: "host",
+  });
+
+  await updateTeamRanks(match._id);
+  const updatedTeam = await Team.findById(team._id);
+  emitScoreEvents(match, updatedTeam, scoreLog);
+  emitTeamEvent(SOCKET_EVENTS.LEADERBOARD_UPDATED, match, {
+    matchId: match.matchId,
+  });
+
+  return {
+    scoreLog: toObject(scoreLog),
+    team: toTeamScore(updatedTeam),
+  };
+}
+
 async function getScoreLogs(matchDbId, hostId, query) {
   await ensureHostOwnsMatch(hostId, matchDbId);
 
@@ -556,5 +600,6 @@ module.exports = {
   getScoreLogs,
   overrideTeamScore,
   reviewAnswer,
+  setTeamBonusScore,
   updateTeamRanks,
 };

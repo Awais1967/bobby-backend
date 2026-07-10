@@ -105,6 +105,11 @@ const teamSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    bonusPoints: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
     rank: {
       type: Number,
       default: null,
