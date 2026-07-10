@@ -1,5 +1,6 @@
 const ANSWER_STATUS = Object.freeze({
   SUBMITTED: "submitted",
+  GAVE_UP: "gave_up",
   REOPENED: "reopened",
   VOIDED: "voided",
 });

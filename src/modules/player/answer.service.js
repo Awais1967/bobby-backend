@@ -60,6 +60,7 @@ function toAnswerResponse(answer, question = null) {
     submittedAt: data.submittedAt,
     responseTimeMs: data.responseTimeMs,
     status: data.status,
+    gaveUp: Boolean(data.gaveUp || data.status === ANSWER_STATUS.GAVE_UP),
     isLocked: data.isLocked,
     isCorrect: data.isCorrect,
     reviewStatus: data.reviewStatus,
@@ -382,6 +383,7 @@ async function submitAnswer(playerPayload, answerPayload) {
     submittedAt: new Date(),
     responseTimeMs: calculateResponseTime(match),
     status: ANSWER_STATUS.SUBMITTED,
+    gaveUp: false,
     isLocked: true,
     reviewStatus: REVIEW_STATUS.PENDING,
     submittedDeviceId: playerPayload.deviceId,
@@ -409,6 +411,76 @@ async function submitAnswer(playerPayload, answerPayload) {
   });
 
   return toAnswerResponse(answer);
+}
+
+async function giveUpCurrentQuestion(playerPayload) {
+  const [match, team] = await Promise.all([
+    Match.findById(playerPayload.matchDbId),
+    Team.findById(playerPayload.teamId),
+  ]);
+
+  ensureTeamCanSubmit(team, playerPayload.deviceId);
+  ensureMatchQuestionIsOpen(match);
+
+  const question = await getCurrentQuestion(match);
+  let answer = await findExistingAnswer(match._id, team._id, match.currentQuestionId);
+
+  if (answer?.isLocked) {
+    if (answer.status === ANSWER_STATUS.GAVE_UP || answer.gaveUp) {
+      throw createHttpError("Already gave up on this question.", 409);
+    }
+    throw createHttpError("Answer already submitted and locked.", 409);
+  }
+
+  const answerData = {
+    matchDbId: match._id,
+    matchId: match.matchId,
+    teamId: team._id,
+    teamName: team.teamName,
+    questionId: match.currentQuestionId,
+    roundIndex: match.currentRoundIndex,
+    questionIndex: match.currentQuestionIndex,
+    questionType: question.type,
+    answerText: "",
+    selectedOption: "",
+    selectedOptions: [],
+    orderingAnswer: [],
+    numericAnswer: null,
+    wagerAmount: null,
+    submittedAnswerDisplay: "xxxxx",
+    submittedAt: new Date(),
+    responseTimeMs: calculateResponseTime(match),
+    status: ANSWER_STATUS.GAVE_UP,
+    gaveUp: true,
+    isLocked: true,
+    reviewStatus: REVIEW_STATUS.PENDING,
+    isCorrect: false,
+    awardedPoints: 0,
+    submittedDeviceId: playerPayload.deviceId,
+    submittedSocketId: "",
+  };
+
+  if (!answer) {
+    answer = await Answer.create(answerData);
+  } else {
+    Object.assign(answer, answerData);
+    await answer.save();
+  }
+
+  team.currentAnswerStatus = CURRENT_ANSWER_STATUS.SUBMITTED;
+  team.lastSeenAt = new Date();
+  await team.save();
+
+  const response = toAnswerResponse(answer);
+  emitAnswerSubmitted(match, response);
+  emitTeamEvent(SOCKET_EVENTS.ANSWER_SUBMITTED, match, response);
+  emitTeamEvent(SOCKET_EVENTS.TEAM_ANSWER_STATUS_UPDATED, match, {
+    teamId: team._id.toString(),
+    teamName: team.teamName,
+    currentAnswerStatus: team.currentAnswerStatus,
+  });
+
+  return response;
 }
 
 async function getMyCurrentAnswer(playerPayload) {
@@ -476,6 +548,10 @@ async function reopenAnswer(matchDbId, answerId, hostId) {
   }
 
   answer.status = ANSWER_STATUS.REOPENED;
+  answer.gaveUp = false;
+  if (answer.submittedAnswerDisplay === "xxxxx") {
+    answer.submittedAnswerDisplay = "";
+  }
   answer.isLocked = false;
   answer.reopenedByHost = hostId;
   answer.reopenedAt = new Date();
@@ -547,6 +623,7 @@ module.exports = {
   ensureMatchQuestionIsOpen,
   ensureTeamCanSubmit,
   findExistingAnswer,
+  giveUpCurrentQuestion,
   getAnswersByQuestion,
   getCurrentQuestion,
   getCurrentQuestionSubmissions,

@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 
+const { ANSWER_STATUS } = require("../../constants/answerStatus");
 const { TEAM_STATUS } = require("../../constants/teamStatus");
 const { getQuestionPoints } = require("../../utils/scoring");
 const Answer = require("../matches/answer.model");
@@ -225,7 +226,7 @@ async function getPlayerState(playerPayload) {
           questionId: match.currentQuestionId,
         })
           .select(
-            "answerText selectedOption selectedOptions orderingAnswer numericAnswer wagerAmount submittedAnswerDisplay submittedAt isLocked reviewStatus"
+            "answerText selectedOption selectedOptions orderingAnswer numericAnswer wagerAmount submittedAnswerDisplay submittedAt status gaveUp isLocked reviewStatus"
           )
           .lean()
       : null,
@@ -256,6 +257,8 @@ async function getPlayerState(playerPayload) {
     currentAnswer: currentAnswer
         ? {
           submittedAnswerDisplay: currentAnswer.submittedAnswerDisplay,
+          status: currentAnswer.status,
+          gaveUp: Boolean(currentAnswer.gaveUp || currentAnswer.status === ANSWER_STATUS.GAVE_UP),
           answerText: currentAnswer.answerText,
           selectedOption: currentAnswer.selectedOption,
           selectedOptions: currentAnswer.selectedOptions || [],

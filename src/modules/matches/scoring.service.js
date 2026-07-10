@@ -13,6 +13,7 @@ const {
 const {
   applyScoreChange,
   calculateAwardedPoints,
+  calculateMatchedAnswerPoints,
   calculateWagerPoints,
   getQuestionPoints,
   isFiftyFiftyCorrect,
@@ -343,6 +344,27 @@ function getAutoGradeStatus(question, answer) {
   return REVIEW_STATUS.PENDING;
 }
 
+function getAutoGradeReview(question, answer) {
+  const matchedAnswers = calculateMatchedAnswerPoints(question, answer);
+
+  if (matchedAnswers) {
+    if (matchedAnswers.correctCount === matchedAnswers.totalAnswers) {
+      return { reviewStatus: REVIEW_STATUS.CORRECT };
+    }
+
+    if (matchedAnswers.correctCount === 0) {
+      return { reviewStatus: REVIEW_STATUS.INCORRECT };
+    }
+
+    return {
+      reviewStatus: REVIEW_STATUS.PARTIAL,
+      awardedPoints: matchedAnswers.awardedPoints,
+    };
+  }
+
+  return { reviewStatus: getAutoGradeStatus(question, answer) };
+}
+
 async function autoGradeQuestion(matchDbId, questionId, hostId) {
   const match = await ensureHostOwnsMatch(hostId, matchDbId);
   const question = await Question.findById(questionId);
@@ -361,7 +383,8 @@ async function autoGradeQuestion(matchDbId, questionId, hostId) {
       continue;
     }
 
-    const reviewStatus = getAutoGradeStatus(question, answer);
+    const review = getAutoGradeReview(question, answer);
+    const { reviewStatus } = review;
 
     if (reviewStatus === REVIEW_STATUS.PENDING) {
       pendingCount += 1;
@@ -370,7 +393,7 @@ async function autoGradeQuestion(matchDbId, questionId, hostId) {
 
     try {
       const team = await ensureTeamBelongsToMatch(answer.teamId, matchDbId);
-      await applyAnswerReview(match, answer, team, question, hostId, { reviewStatus, note: "Auto-graded" });
+      await applyAnswerReview(match, answer, team, question, hostId, { ...review, note: "Auto-graded" });
       gradedCount += 1;
     } catch (error) {
       errors.push({
@@ -388,14 +411,15 @@ async function autoGradeQuestion(matchDbId, questionId, hostId) {
 }
 
 async function autoReviewSubmittedAnswer(match, answer, team, question) {
-  const reviewStatus = getAutoGradeStatus(question, answer);
+  const review = getAutoGradeReview(question, answer);
+  const { reviewStatus } = review;
 
   if (reviewStatus === REVIEW_STATUS.PENDING) {
     return null;
   }
 
   return applyAnswerReview(match, answer, team, question, match.hostId, {
-    reviewStatus,
+    ...review,
     note: "Auto-graded on submit",
   });
 }

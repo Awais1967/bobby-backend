@@ -95,6 +95,10 @@ const answerSchema = new mongoose.Schema(
       enum: Object.values(ANSWER_STATUS),
       default: ANSWER_STATUS.SUBMITTED,
     },
+    gaveUp: {
+      type: Boolean,
+      default: false,
+    },
     isLocked: {
       type: Boolean,
       default: true,

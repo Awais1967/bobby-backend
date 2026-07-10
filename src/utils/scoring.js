@@ -83,11 +83,50 @@ function calculateWagerPoints(answer, isCorrect) {
   return isCorrect ? wagerAmount : -wagerAmount;
 }
 
-function getQuestionPoints(question) {
+function getPointsPerAnswer(question) {
   return Math.max(Number(question?.points) || 0, 10);
 }
 
+function getQuestionAnswerCount(question) {
+  return Math.max(
+    Array.isArray(question?.correctAnswers) ? question.correctAnswers.filter(Boolean).length : 0,
+    1
+  );
+}
+
+function getQuestionPoints(question) {
+  return getPointsPerAnswer(question) * getQuestionAnswerCount(question);
+}
+
+function calculateMatchedAnswerPoints(question, answer) {
+  const expectedParts = Array.isArray(question?.correctAnswers)
+    ? question.correctAnswers.filter(Boolean).map(normalizeAnswer)
+    : [];
+
+  if (expectedParts.length <= 1) return null;
+
+  const submittedParts = String(answer?.answerText || answer?.selectedOption || "")
+    .split("|")
+    .map(normalizeAnswer);
+  const correctCount = expectedParts.reduce(
+    (count, expected, index) => count + (submittedParts[index] === expected ? 1 : 0),
+    0
+  );
+
+  return {
+    awardedPoints: correctCount * getPointsPerAnswer(question),
+    correctCount,
+    totalAnswers: expectedParts.length,
+  };
+}
+
 function calculateAwardedPoints(question, answer, reviewPayload) {
+  const matchedAnswers = calculateMatchedAnswerPoints(question, answer);
+
+  if (matchedAnswers && reviewPayload.reviewStatus === "partial") {
+    return matchedAnswers.awardedPoints;
+  }
+
   if (typeof reviewPayload.awardedPoints === "number") {
     return reviewPayload.awardedPoints;
   }
@@ -127,10 +166,12 @@ function recalculateAnswerScore(answer, question, team, reviewPayload) {
 
 module.exports = {
   applyScoreChange,
+  calculateMatchedAnswerPoints,
   calculateAwardedPoints,
   calculateSpeedBonus,
   calculateWagerPoints,
   getQuestionPoints,
+  getPointsPerAnswer,
   isFiftyFiftyCorrect,
   isMultipleChoiceCorrect,
   isNumericCorrect,

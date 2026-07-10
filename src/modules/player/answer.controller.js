@@ -22,6 +22,22 @@ async function submitAnswer(req, res, next) {
   }
 }
 
+async function giveUpCurrentQuestion(req, res, next) {
+  try {
+    const answer = await answerService.giveUpCurrentQuestion(req.player);
+
+    return res.status(201).json({
+      success: true,
+      message: "Give up submitted",
+      data: {
+        answer,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function getMyCurrentAnswer(req, res, next) {
   try {
     const answer = await answerService.getMyCurrentAnswer(req.player);
@@ -52,6 +68,7 @@ async function getMyAnswerHistory(req, res, next) {
 }
 
 module.exports = {
+  giveUpCurrentQuestion,
   getMyAnswerHistory,
   getMyCurrentAnswer,
   submitAnswer,
