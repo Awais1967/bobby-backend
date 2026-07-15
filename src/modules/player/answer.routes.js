@@ -7,6 +7,7 @@ const router = express.Router();
 
 router.post("/", playerAuthMiddleware, answerController.submitAnswer);
 router.post("/give-up", playerAuthMiddleware, answerController.giveUpCurrentQuestion);
+router.post("/tie-breaker", playerAuthMiddleware, answerController.submitTieBreakerAnswer);
 router.get("/current", playerAuthMiddleware, answerController.getMyCurrentAnswer);
 router.get("/", playerAuthMiddleware, answerController.getMyAnswerHistory);
 

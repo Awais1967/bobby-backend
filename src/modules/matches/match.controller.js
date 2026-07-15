@@ -1,6 +1,7 @@
 const matchService = require("./match.service");
 const playerService = require("../player/player.service");
 const answerService = require("../player/answer.service");
+const tieBreakerService = require("./tieBreaker.service");
 const {
   getAnswerQueryValidation,
   reopenAnswerValidation,
@@ -327,6 +328,50 @@ async function getOwnedMatchQuestions(req, res, next) {
   }
 }
 
+async function getTieBreakerQuestions(req, res, next) {
+  try {
+    const data = await matchService.getTieBreakerQuestions(req.params.id, req.user.id, req.query);
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getTieBreakerSession(req, res, next) {
+  try {
+    const session = await tieBreakerService.getHostSession(req.params.id, req.user.id);
+    return res.status(200).json({ success: true, data: { session } });
+  } catch (error) { return next(error); }
+}
+
+async function startTieBreaker(req, res, next) {
+  try {
+    const session = await tieBreakerService.startSession(req.params.id, req.user.id, req.body || {});
+    return res.status(201).json({ success: true, data: { session } });
+  } catch (error) { return next(error); }
+}
+
+async function judgeTieBreaker(req, res, next) {
+  try {
+    const session = await tieBreakerService.judgeSession(req.params.id, req.user.id, req.body || {});
+    return res.status(200).json({ success: true, data: { session } });
+  } catch (error) { return next(error); }
+}
+
+async function reviewTieBreakerResponse(req, res, next) {
+  try {
+    const session = await tieBreakerService.reviewResponse(req.params.id, req.user.id, req.body || {});
+    return res.status(200).json({ success: true, data: { session } });
+  } catch (error) { return next(error); }
+}
+
+async function revealTieBreaker(req, res, next) {
+  try {
+    const session = await tieBreakerService.revealSession(req.params.id, req.user.id);
+    return res.status(200).json({ success: true, data: { session } });
+  } catch (error) { return next(error); }
+}
+
 async function getPublicMatchInfo(req, res, next) {
   try {
     const match = await matchService.getPublicMatchInfo(req.params.matchId);
@@ -457,17 +502,23 @@ module.exports = {
   getMyActiveMatch,
   getMyMatches,
   getOwnedMatchQuestions,
+  getTieBreakerQuestions,
+  getTieBreakerSession,
   getPublicMatchInfo,
   jumpToQuestion,
+  judgeTieBreaker,
   openCurrentQuestion,
   pauseMatch,
   revealCurrentAnswer,
   revealFinalQuestion,
+  revealTieBreaker,
   resumeMatch,
   skipQuestion,
   startIntermission,
+  startTieBreaker,
   startMatch,
   removeTeam,
   reopenAnswer,
   restoreTeam,
+  reviewTieBreakerResponse,
 };

@@ -203,6 +203,7 @@ async function getCurrentSafeQuestion(match, includeWhenClosed = false) {
 }
 
 async function getPlayerState(playerPayload) {
+  const tieBreakerService = require("../matches/tieBreaker.service");
   const [match, team] = await Promise.all([
     Match.findById(playerPayload.matchDbId).lean(),
     Team.findById(playerPayload.teamId).lean(),
@@ -216,7 +217,7 @@ async function getPlayerState(playerPayload) {
     throw createHttpError("Player session is invalid or expired.", 401);
   }
 
-  const [leaderboard, currentQuestion, currentAnswer] = await Promise.all([
+  const [leaderboard, currentQuestion, currentAnswer, tieBreaker] = await Promise.all([
     getMatchLeaderboard(match._id),
     getCurrentSafeQuestion(match, false),
     match.currentQuestionId
@@ -230,6 +231,7 @@ async function getPlayerState(playerPayload) {
           )
           .lean()
       : null,
+    tieBreakerService.getPlayerSession(playerPayload),
   ]);
   const myRank = leaderboard.find((item) => item.teamId === team._id.toString());
 
@@ -270,6 +272,7 @@ async function getPlayerState(playerPayload) {
           reviewStatus: currentAnswer.reviewStatus,
         }
       : null,
+    tieBreaker,
   };
 }
 

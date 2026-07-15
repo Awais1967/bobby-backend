@@ -58,6 +58,7 @@ const baseQuestionFields = {
       "any.only": "Invalid question status.",
     }),
   tags: Joi.array().items(Joi.string().trim()).default([]),
+  usageType: Joi.string().valid("regular", "tie_breaker").default("regular"),
   explanation: Joi.string().trim().allow("").default(""),
   notes: Joi.string().trim().allow("").default(""),
 
@@ -114,6 +115,7 @@ const updateQuestionValidation = Joi.object({
       "any.only": "Invalid question status.",
     }),
   tags: Joi.array().items(Joi.string().trim()).optional(),
+  usageType: Joi.string().valid("regular", "tie_breaker").optional(),
   explanation: Joi.string().trim().allow("").optional(),
   notes: Joi.string().trim().allow("").optional(),
 
@@ -184,6 +186,7 @@ const getQuestionsQueryValidation = Joi.object({
     .valid(...statusValues)
     .optional(),
   tag: Joi.string().trim().allow("").optional(),
+  usageType: Joi.string().valid("regular", "tie_breaker").optional(),
   sortBy: Joi.string()
     .valid("questionText", "category", "type", "difficulty", "status", "createdAt", "updatedAt")
     .default("createdAt"),

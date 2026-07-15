@@ -78,6 +78,17 @@ router.patch(
 router.get("/:id/score-logs", authMiddleware, requireRole(ROLES.HOST), scoringController.getScoreLogs);
 router.get("/:id/questions", authMiddleware, requireRole(ROLES.HOST), matchController.getOwnedMatchQuestions);
 router.get(
+  "/:id/tie-breaker/questions",
+  authMiddleware,
+  requireRole(ROLES.HOST),
+  matchController.getTieBreakerQuestions
+);
+router.get("/:id/tie-breaker", authMiddleware, requireRole(ROLES.HOST), matchController.getTieBreakerSession);
+router.post("/:id/tie-breaker", authMiddleware, requireRole(ROLES.HOST), matchController.startTieBreaker);
+router.patch("/:id/tie-breaker/judge", authMiddleware, requireRole(ROLES.HOST), matchController.judgeTieBreaker);
+router.patch("/:id/tie-breaker/review", authMiddleware, requireRole(ROLES.HOST), matchController.reviewTieBreakerResponse);
+router.patch("/:id/tie-breaker/reveal", authMiddleware, requireRole(ROLES.HOST), matchController.revealTieBreaker);
+router.get(
   "/:id/scores",
   authMiddleware,
   requireRole(ROLES.HOST, ROLES.SUPER_ADMIN),

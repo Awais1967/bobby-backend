@@ -62,6 +62,11 @@ const questionSchema = new mongoose.Schema(
         trim: true,
       },
     ],
+    usageType: {
+      type: String,
+      enum: ["regular", "tie_breaker"],
+      default: "regular",
+    },
     explanation: {
       type: String,
       default: "",
@@ -206,6 +211,7 @@ questionSchema.index({ type: 1 });
 questionSchema.index({ status: 1 });
 questionSchema.index({ category: 1 });
 questionSchema.index({ difficulty: 1 });
+questionSchema.index({ usageType: 1, status: 1 });
 
 // Text index for search functionality
 questionSchema.index({

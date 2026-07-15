@@ -265,6 +265,10 @@ async function getQuestions(query) {
     filter.tags = query.tag;
   }
 
+  if (query.usageType) {
+    filter.usageType = query.usageType;
+  }
+
   const skip = (query.page - 1) * query.pageSize;
   const sortDirection = query.sortOrder === "asc" ? 1 : -1;
 

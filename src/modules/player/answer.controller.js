@@ -1,4 +1,5 @@
 const answerService = require("./answer.service");
+const tieBreakerService = require("../matches/tieBreaker.service");
 const {
   getAnswerQueryValidation,
   submitAnswerValidation,
@@ -67,9 +68,17 @@ async function getMyAnswerHistory(req, res, next) {
   }
 }
 
+async function submitTieBreakerAnswer(req, res, next) {
+  try {
+    const response = await tieBreakerService.submitPlayerResponse(req.player, req.body?.answerText);
+    return res.status(201).json({ success: true, message: "Tie-breaker answer submitted", data: { response } });
+  } catch (error) { return next(error); }
+}
+
 module.exports = {
   giveUpCurrentQuestion,
   getMyAnswerHistory,
   getMyCurrentAnswer,
   submitAnswer,
+  submitTieBreakerAnswer,
 };
