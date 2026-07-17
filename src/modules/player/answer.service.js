@@ -65,6 +65,7 @@ function toAnswerResponse(answer, question = null) {
     isCorrect: data.isCorrect,
     reviewStatus: data.reviewStatus,
     awardedPoints,
+    bonusPoints: Math.max(0, Number(data.bonusPoints) || 0),
   };
 }
 
@@ -573,6 +574,7 @@ async function reopenAnswer(matchDbId, answerId, hostId) {
   answer.reviewStatus = REVIEW_STATUS.PENDING;
   answer.isCorrect = null;
   answer.awardedPoints = 0;
+  answer.bonusPoints = 0;
   answer.reviewedBy = null;
   answer.reviewedAt = null;
   answer.hostNote = "";

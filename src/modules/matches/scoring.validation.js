@@ -19,6 +19,7 @@ const reviewAnswerValidation = Joi.object({
     }),
     otherwise: Joi.number().min(0).optional(),
   }),
+  bonusPoints: Joi.number().min(0).optional(),
   note: Joi.string().trim().allow("").optional(),
   songTitleCorrect: Joi.boolean().optional(),
   artistNameCorrect: Joi.boolean().optional(),

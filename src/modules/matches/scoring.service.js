@@ -189,6 +189,7 @@ function emitScoreEvents(match, team, scoreLog, answer = null) {
       answerId: answer._id.toString(),
       reviewStatus: answer.reviewStatus,
       awardedPoints: answer.awardedPoints,
+      bonusPoints: answer.bonusPoints || 0,
     });
   }
 
@@ -206,16 +207,20 @@ async function applyAnswerReview(match, answer, team, question, hostId, payload)
   }
 
   let awardedPoints;
-  let pointsChange;
+  const previousAnswerPoints =
+    (Number(answer.awardedPoints) || 0) + (Number(answer.bonusPoints) || 0);
+  const bonusPoints =
+    payload.bonusPoints === undefined
+      ? Number(answer.bonusPoints) || 0
+      : Math.max(0, Number(payload.bonusPoints) || 0);
 
   if (hasWagerAmount(answer) && payload.reviewStatus !== REVIEW_STATUS.PARTIAL) {
     awardedPoints = getWagerAwardedPoints(answer, payload.reviewStatus);
-    pointsChange = awardedPoints - (answer.awardedPoints || 0);
   } else {
     const recalculated = recalculateAnswerScore(answer, question, team, payload);
     awardedPoints = recalculated.awardedPoints;
-    pointsChange = recalculated.pointsChange;
   }
+  const pointsChange = awardedPoints + bonusPoints - previousAnswerPoints;
 
   const { previousScore, newScore } = applyScoreChange(team, pointsChange);
   await team.save();
@@ -223,6 +228,7 @@ async function applyAnswerReview(match, answer, team, question, hostId, payload)
   answer.reviewStatus = payload.reviewStatus;
   answer.isCorrect = getIsCorrect(payload.reviewStatus);
   answer.awardedPoints = awardedPoints;
+  answer.bonusPoints = bonusPoints;
   answer.reviewedBy = hostId;
   answer.reviewedAt = new Date();
   answer.hostNote = payload.note || "";
@@ -260,7 +266,8 @@ async function applyAnswerReview(match, answer, team, question, hostId, payload)
 }
 
 async function reverseAnswerScoreForReopen(match, answer, team, hostId) {
-  const pointsChange = -(Number(answer.awardedPoints) || 0);
+  const pointsChange =
+    -((Number(answer.awardedPoints) || 0) + (Number(answer.bonusPoints) || 0));
   const { previousScore, newScore } = applyScoreChange(team, pointsChange);
   await team.save();
 
