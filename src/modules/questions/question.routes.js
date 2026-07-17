@@ -22,6 +22,7 @@ router.post(
   questionController.createQuestion
 );
 router.get("/", authMiddleware, requireSuperAdmin, questionController.getQuestions);
+router.get("/categories", authMiddleware, requireSuperAdmin, questionController.getQuestionCategories);
 
 // Bulk questions import (Registered BEFORE /:id to prevent parameter collision)
 router.post("/bulk", authMiddleware, requireSuperAdmin, questionController.bulkCreateQuestions);

@@ -299,6 +299,11 @@ async function getQuestionById(id) {
   return toQuestionResponse(question);
 }
 
+async function getQuestionCategories() {
+  const categories = await Question.distinct("category", { status: { $ne: "archived" } });
+  return categories.filter(Boolean).sort((left, right) => left.localeCompare(right));
+}
+
 async function updateQuestion(id, payload) {
   ensureQuestionObjectId(id);
 
@@ -465,6 +470,7 @@ module.exports = {
   createQuestion,
   deleteQuestion,
   duplicateQuestion,
+  getQuestionCategories,
   getQuestionById,
   getQuestions,
   toHostSafeQuestionResponse,

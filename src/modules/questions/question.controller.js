@@ -116,6 +116,15 @@ async function getQuestions(req, res, next) {
   }
 }
 
+async function getQuestionCategories(req, res, next) {
+  try {
+    const items = await questionService.getQuestionCategories();
+    return res.status(200).json({ success: true, data: { items } });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function getQuestionById(req, res, next) {
   try {
     const question = await questionService.getQuestionById(req.params.id);
@@ -231,6 +240,7 @@ module.exports = {
   createQuestion,
   deleteQuestion,
   duplicateQuestion,
+  getQuestionCategories,
   getHostSafeQuestion,
   getQuestionById,
   getQuestions,
