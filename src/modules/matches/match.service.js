@@ -6,6 +6,7 @@ const {
   MATCH_STATUS,
 } = require("../../constants/matchStatus");
 const { TEAM_STATUS } = require("../../constants/teamStatus");
+const { ANSWER_STATUS, REVIEW_STATUS } = require("../../constants/answerStatus");
 const SOCKET_EVENTS = require("../../constants/socketEvents");
 const {
   emitMatchStateUpdated,
@@ -379,31 +380,72 @@ function isQuestionInFinalRound(game, questionId) {
   return finalQuestionIds.includes(questionId.toString());
 }
 
-async function getFinalWagerProgress(match) {
-  const activeTeams = await Team.find({
-    matchDbId: match._id,
-    status: { $ne: TEAM_STATUS.REMOVED },
-  }).select("_id");
-  const teamIds = activeTeams.map((team) => team._id);
+async function autoSubmitMissingFinalWagers(match) {
+  const [teams, question, existingAnswers] = await Promise.all([
+    Team.find({
+      matchDbId: match._id,
+      status: { $ne: TEAM_STATUS.REMOVED },
+    }).select("_id teamName activeDeviceId"),
+    Question.findById(match.currentQuestionId).select("type").lean(),
+    Answer.find({
+      matchDbId: match._id,
+      questionId: match.currentQuestionId,
+    }).select("teamId wagerAmount"),
+  ]);
 
-  if (teamIds.length === 0) {
-    return {
-      submittedCount: 0,
-      totalTeams: 0,
-    };
-  }
-
-  const submittedCount = await Answer.countDocuments({
-    matchDbId: match._id,
-    questionId: match.currentQuestionId,
-    teamId: { $in: teamIds },
-    wagerAmount: { $type: "number" },
+  const answersByTeamId = new Map(
+    existingAnswers.map((answer) => [answer.teamId.toString(), answer])
+  );
+  const missingTeams = teams.filter((team) => {
+    const answer = answersByTeamId.get(team._id.toString());
+    return !answer || typeof answer.wagerAmount !== "number";
   });
 
-  return {
-    submittedCount,
-    totalTeams: teamIds.length,
-  };
+  await Promise.all(
+    missingTeams.map(async (team) => {
+      const existingAnswer = answersByTeamId.get(team._id.toString());
+
+      if (existingAnswer) {
+        await Answer.updateOne(
+          { _id: existingAnswer._id, wagerAmount: { $not: { $type: "number" } } },
+          {
+            $set: {
+              wagerAmount: 0,
+              submittedAnswerDisplay: "Wager: 0",
+              submittedAt: new Date(),
+              status: ANSWER_STATUS.SUBMITTED,
+              isLocked: true,
+            },
+          }
+        );
+        return;
+      }
+
+      try {
+        await Answer.create({
+          matchDbId: match._id,
+          matchId: match.matchId,
+          teamId: team._id,
+          teamName: team.teamName,
+          questionId: match.currentQuestionId,
+          roundIndex: match.currentRoundIndex,
+          questionIndex: match.currentQuestionIndex,
+          questionType: question?.type || "wager",
+          wagerAmount: 0,
+          submittedAnswerDisplay: "Wager: 0",
+          submittedAt: new Date(),
+          status: ANSWER_STATUS.SUBMITTED,
+          isLocked: true,
+          reviewStatus: REVIEW_STATUS.PENDING,
+          submittedDeviceId: team.activeDeviceId || "system:auto-wager",
+        });
+      } catch (error) {
+        if (error?.code !== 11000) throw error;
+      }
+    })
+  );
+
+  return missingTeams.length;
 }
 
 async function findOwnedMatch(matchDbId, hostId, allowedStatuses = null) {
@@ -914,10 +956,7 @@ async function revealFinalQuestion(matchDbId, hostId) {
     throw createHttpError("Reveal question is only available for the wager question.", 400);
   }
 
-  const wagerProgress = await getFinalWagerProgress(match);
-  if (wagerProgress.totalTeams > 0 && wagerProgress.submittedCount < wagerProgress.totalTeams) {
-    throw createHttpError("Waiting for all player wagers before revealing the wager question.", 400);
-  }
+  await autoSubmitMissingFinalWagers(match);
 
   match.isFinalQuestionRevealed = true;
   match.isQuestionOpen = true;
