@@ -97,6 +97,16 @@ function buildCalendarMatchFilter(query = {}, { defaultToCompleted = true } = {}
   return filter;
 }
 
+async function excludeArchivedGameMatches(filter) {
+  const archivedGameIds = await Game.distinct("_id", { status: "archived" });
+  if (!archivedGameIds.length) return;
+
+  filter.$and = [
+    ...(filter.$and || []),
+    { gameId: { $nin: archivedGameIds } },
+  ];
+}
+
 function buildCalendarDateCondition(start, end) {
   const range = { $gte: start, $lte: end };
   return [
@@ -108,7 +118,11 @@ function buildCalendarDateCondition(start, end) {
 function mergeDateCondition(filter, start, end) {
   const dateCondition = buildCalendarDateCondition(start, end);
   if (filter.$or) {
-    filter.$and = [{ $or: filter.$or }, { $or: dateCondition }];
+    filter.$and = [
+      ...(filter.$and || []),
+      { $or: filter.$or },
+      { $or: dateCondition },
+    ];
     delete filter.$or;
   } else {
     filter.$or = dateCondition;
@@ -126,7 +140,11 @@ function applySearchCondition(filter, search) {
   ];
 
   if (filter.$or) {
-    filter.$and = [{ $or: filter.$or }, { $or: searchConditions }];
+    filter.$and = [
+      ...(filter.$and || []),
+      { $or: filter.$or },
+      { $or: searchConditions },
+    ];
     delete filter.$or;
   } else {
     filter.$or = searchConditions;
@@ -326,6 +344,7 @@ function buildPeriodResponse(start, end) {
 async function fetchCalendarMatches(filter, query, options = {}) {
   const { defaultToCompleted = true } = options;
   const matchFilter = buildCalendarMatchFilter(query, { defaultToCompleted });
+  await excludeArchivedGameMatches(matchFilter);
   if (filter) mergeDateCondition(matchFilter, filter.start, filter.end);
   applySearchCondition(matchFilter, query.search);
 
@@ -375,6 +394,7 @@ async function getCalendarMatchesByRange(query) {
 async function getCalendarDayMatches(query) {
   const { start, end } = buildDayRange(query.date);
   const filter = buildCalendarMatchFilter(query, { defaultToCompleted: false });
+  await excludeArchivedGameMatches(filter);
   mergeDateCondition(filter, start, end);
 
   const matches = query.eventCategory === "game"
