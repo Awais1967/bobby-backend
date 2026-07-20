@@ -139,6 +139,16 @@ const matchSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    intermissionType: {
+      type: String,
+      enum: ["manual", "quarter", ""],
+      default: "",
+    },
+    pausedQuestionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Question",
+      default: null,
+    },
     pausedState: {
       type: String,
       enum: [...Object.values(MATCH_CURRENT_STATE), ""],
@@ -149,6 +159,10 @@ const matchSchema = new mongoose.Schema(
       default: false,
     },
     pausedAnswerRevealed: {
+      type: Boolean,
+      default: false,
+    },
+    pausedFinalQuestionRevealed: {
       type: Boolean,
       default: false,
     },

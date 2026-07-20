@@ -325,7 +325,7 @@ async function submitAnswer(playerPayload, answerPayload) {
       orderingAnswer: [],
     };
   } else if (isAwaitingFinalQuestionReveal && hasPayloadAnswer(answerPayload)) {
-    throw createHttpError("Final question has not been revealed yet.", 400);
+    throw createHttpError("Wager question has not been revealed yet.", 400);
   }
 
   if (typeof answerPayload.wagerAmount === "number") {

@@ -135,7 +135,7 @@ async function revealFinalQuestion(req, res, next) {
 
     return res.status(200).json({
       success: true,
-      message: "Final question revealed successfully",
+      message: "Wager question revealed successfully",
       data: { match },
     });
   } catch (error) {

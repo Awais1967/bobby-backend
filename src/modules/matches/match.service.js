@@ -97,6 +97,7 @@ function toPublicMatchResponse(match) {
     isQuestionOpen: Boolean(data.isQuestionOpen),
     isAnswerRevealed: Boolean(data.isAnswerRevealed),
     isFinalQuestionRevealed: Boolean(data.isFinalQuestionRevealed),
+    intermissionType: data.intermissionType || "",
   };
 }
 
@@ -753,6 +754,11 @@ async function advanceToNextQuestion(matchDbId, hostId, options = {}) {
     MATCH_STATUS.LIVE,
     MATCH_STATUS.INTERMISSION,
   ]);
+
+  if (match.status === MATCH_STATUS.INTERMISSION && match.intermissionType === "manual") {
+    throw createHttpError("Resume the current question before advancing.", 400);
+  }
+
   const game = await Game.findById(match.gameId);
 
   if (!game) {
@@ -772,6 +778,7 @@ async function advanceToNextQuestion(matchDbId, hostId, options = {}) {
     match.isFinalQuestionRevealed = false;
     match.isIntermission = false;
     match.activeIntermissionIndex = null;
+    match.intermissionType = "";
     match.timerStartedAt = null;
     match.timerPausedAt = null;
     await match.save();
@@ -789,6 +796,12 @@ async function advanceToNextQuestion(matchDbId, hostId, options = {}) {
     match.isAnswerRevealed = false;
     match.isFinalQuestionRevealed = false;
     match.activeIntermissionIndex = nextPointer.intermissionIndex;
+    match.intermissionType = "quarter";
+    match.pausedQuestionId = null;
+    match.pausedState = "";
+    match.pausedQuestionOpen = false;
+    match.pausedAnswerRevealed = false;
+    match.pausedFinalQuestionRevealed = false;
     await match.save();
 
     emitMatchEvent(SOCKET_EVENTS.INTERMISSION_STARTED, match, toPublicMatchResponse(match));
@@ -809,6 +822,7 @@ async function advanceToNextQuestion(matchDbId, hostId, options = {}) {
   match.isFinalQuestionRevealed = false;
   match.isIntermission = false;
   match.activeIntermissionIndex = null;
+  match.intermissionType = "";
   match.timerStartedAt = null;
   match.timerPausedAt = null;
   await match.save();
@@ -866,24 +880,21 @@ async function skipQuestion(matchDbId, hostId) {
 
 async function startIntermission(matchDbId, hostId, payload) {
   const match = await findOwnedMatch(matchDbId, hostId, [MATCH_STATUS.LIVE]);
-  const game = await Game.findById(match.gameId);
-
-  if (!game) {
-    throw createHttpError("Game not found.", 404);
-  }
-
-  const hasConfiguredIntermission = Boolean(game.intermissions?.[payload.intermissionIndex]);
 
   match.status = MATCH_STATUS.INTERMISSION;
+  match.pausedQuestionId = match.currentQuestionId;
+  match.pausedState = match.currentState;
+  match.pausedQuestionOpen = match.isQuestionOpen;
+  match.pausedAnswerRevealed = match.isAnswerRevealed;
+  match.pausedFinalQuestionRevealed = match.isFinalQuestionRevealed;
   match.currentState = MATCH_CURRENT_STATE.INTERMISSION;
   match.isIntermission = true;
   match.isQuestionOpen = false;
   match.isAnswerRevealed = false;
   match.isFinalQuestionRevealed = false;
-  match.activeIntermissionIndex = hasConfiguredIntermission ? payload.intermissionIndex : null;
-  match.pausedState = "";
-  match.pausedQuestionOpen = false;
-  match.pausedAnswerRevealed = false;
+  match.activeIntermissionIndex = null;
+  match.intermissionType = payload.type || "manual";
+  match.timerPausedAt = new Date();
   await match.save();
 
   emitMatchEvent(SOCKET_EVENTS.INTERMISSION_STARTED, match, toPublicMatchResponse(match));
@@ -900,12 +911,12 @@ async function revealFinalQuestion(matchDbId, hostId) {
   }
 
   if (!(await isCurrentFinalRoundQuestion(match))) {
-    throw createHttpError("Reveal question is only available for the final question.", 400);
+    throw createHttpError("Reveal question is only available for the wager question.", 400);
   }
 
   const wagerProgress = await getFinalWagerProgress(match);
   if (wagerProgress.totalTeams > 0 && wagerProgress.submittedCount < wagerProgress.totalTeams) {
-    throw createHttpError("Waiting for all player wagers before revealing the final question.", 400);
+    throw createHttpError("Waiting for all player wagers before revealing the wager question.", 400);
   }
 
   match.isFinalQuestionRevealed = true;
@@ -969,14 +980,47 @@ async function resumeMatch(matchDbId, hostId) {
 async function endIntermission(matchDbId, hostId) {
   const match = await findOwnedMatch(matchDbId, hostId, [MATCH_STATUS.INTERMISSION]);
 
+  if (match.intermissionType === "manual") {
+    const resumedAt = new Date();
+    if (match.timerStartedAt && match.timerPausedAt) {
+      const pausedForMs = resumedAt.getTime() - new Date(match.timerPausedAt).getTime();
+      match.timerStartedAt = new Date(new Date(match.timerStartedAt).getTime() + Math.max(0, pausedForMs));
+    }
+
+    match.status = MATCH_STATUS.LIVE;
+    match.currentQuestionId = match.pausedQuestionId || match.currentQuestionId;
+    match.currentState = match.pausedState || MATCH_CURRENT_STATE.QUESTION_CLOSED;
+    match.isIntermission = false;
+    match.isQuestionOpen = Boolean(match.pausedQuestionOpen);
+    match.isAnswerRevealed = Boolean(match.pausedAnswerRevealed);
+    match.isFinalQuestionRevealed = Boolean(match.pausedFinalQuestionRevealed);
+    match.activeIntermissionIndex = null;
+    match.intermissionType = "";
+    match.pausedQuestionId = null;
+    match.pausedState = "";
+    match.pausedQuestionOpen = false;
+    match.pausedAnswerRevealed = false;
+    match.pausedFinalQuestionRevealed = false;
+    match.timerPausedAt = null;
+    await match.save();
+
+    emitMatchEvent(SOCKET_EVENTS.INTERMISSION_ENDED, match, toPublicMatchResponse(match));
+    emitMatchStateUpdated(match, toPublicMatchResponse(match));
+    emitQuestionStateUpdated(match, toPublicMatchResponse(match));
+    return toResponse(match);
+  }
+
   match.status = MATCH_STATUS.LIVE;
   match.currentState = MATCH_CURRENT_STATE.QUESTION_CLOSED;
   match.isIntermission = false;
   match.isAnswerRevealed = false;
   match.activeIntermissionIndex = null;
+  match.intermissionType = "";
+  match.pausedQuestionId = null;
   match.pausedState = "";
   match.pausedQuestionOpen = false;
   match.pausedAnswerRevealed = false;
+  match.pausedFinalQuestionRevealed = false;
   await match.save();
 
   emitMatchEvent(SOCKET_EVENTS.INTERMISSION_ENDED, match, toPublicMatchResponse(match));

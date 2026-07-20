@@ -21,7 +21,7 @@ const jumpQuestionValidation = Joi.object({
 });
 
 const startIntermissionValidation = Joi.object({
-  intermissionIndex: Joi.number().integer().min(0).required(),
+  type: Joi.string().valid("manual").default("manual"),
 });
 
 const cancelMatchValidation = Joi.object({
