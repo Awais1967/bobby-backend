@@ -38,6 +38,37 @@ function isExactTieBreakerAnswer(question, answerText) {
   return possibleAnswers.includes(normalizeAnswer(answerText));
 }
 
+function getAutomaticReviewStatus(question, answerText) {
+  const expectedParts = (question.correctAnswers || []).filter(Boolean);
+  if (question.type === "name_that_tune" && expectedParts.length > 1) {
+    const submittedParts = String(answerText || "")
+      .split("|")
+      .map(normalizeAnswer);
+    const correctCount = expectedParts.reduce(
+      (count, expected, index) =>
+        count + (normalizeAnswer(expected) === submittedParts[index] ? 1 : 0),
+      0
+    );
+    if (correctCount === expectedParts.length) return "correct";
+    if (correctCount > 0) return "partial";
+    return "incorrect";
+  }
+  return isExactTieBreakerAnswer(question, answerText) ? "correct" : "incorrect";
+}
+
+function getTieBreakerPoints(question, reviewStatus) {
+  const basePoints = Number(question.points) || 10;
+  const answerCount = Math.max((question.correctAnswers || []).filter(Boolean).length, 1);
+  const fullPoints = question.type === "name_that_tune"
+    ? basePoints * answerCount
+    : basePoints;
+  if (reviewStatus === "correct") return fullPoints;
+  if (reviewStatus === "partial" && question.type === "name_that_tune") {
+    return fullPoints / 2;
+  }
+  return 0;
+}
+
 async function ownedMatch(matchDbId, hostId) {
   if (!mongoose.isValidObjectId(matchDbId)) throw httpError("Match not found.", 404);
   const match = await Match.findOne({ _id: matchDbId, hostId });
@@ -103,7 +134,7 @@ async function judgeSession(matchDbId, hostId, payload) {
 
 async function reviewResponse(matchDbId, hostId, payload) {
   await ownedMatch(matchDbId, hostId);
-  if (!mongoose.isValidObjectId(payload.teamId) || !["correct", "incorrect"].includes(payload.reviewStatus)) {
+  if (!mongoose.isValidObjectId(payload.teamId) || !["correct", "partial", "incorrect"].includes(payload.reviewStatus)) {
     throw httpError("Provide a valid team and review status.", 400);
   }
   const session = await TieBreaker.findOne({ matchDbId }).sort({ createdAt: -1 });
@@ -112,9 +143,8 @@ async function reviewResponse(matchDbId, hostId, payload) {
   if (!response || !response.submittedAt) throw httpError("That team has not submitted a response.", 400);
 
   if (session.revealedAt) {
-    const points = Number(session.question.points) || 10;
     const previousPoints = Number(response.pointsAwarded) || 0;
-    const nextPoints = payload.reviewStatus === "correct" ? points : 0;
+    const nextPoints = getTieBreakerPoints(session.question, payload.reviewStatus);
     const pointsChange = nextPoints - previousPoints;
 
     if (pointsChange > 0) {
@@ -160,16 +190,17 @@ async function revealSession(matchDbId, hostId) {
 
   session.responses.forEach((item) => {
     if (item.reviewStatus === "pending") {
-      item.reviewStatus = isExactTieBreakerAnswer(session.question, item.answerText)
-        ? "correct"
-        : "incorrect";
+      item.reviewStatus = getAutomaticReviewStatus(session.question, item.answerText);
     }
   });
 
   const correct = session.responses.filter((item) => item.reviewStatus === "correct");
-  const points = Number(session.question.points) || 10;
-  for (const response of correct) {
+  const awardedResponses = session.responses.filter((item) =>
+    ["correct", "partial"].includes(item.reviewStatus)
+  );
+  for (const response of awardedResponses) {
     if (!response.pointsAwarded) {
+      const points = getTieBreakerPoints(session.question, response.reviewStatus);
       await scoringService.addTeamScore(matchDbId, response.teamId.toString(), hostId, {
         points,
         reason: "Correct tie-breaker answer",
@@ -201,7 +232,7 @@ async function getPlayerSession(player) {
         ? (session.question.fiftyFiftyOptions || []).map((text) => ({ text, label: text }))
         : (session.question.options || []),
       answerCount: Math.max((session.question.correctAnswers || []).filter(Boolean).length, 1),
-      points: session.question.points,
+      points: getTieBreakerPoints(session.question, "correct"),
       ...(session.revealedAt ? { correctAnswer: session.question.correctAnswers?.join(", ") || session.question.correctAnswer || String(session.question.numericAnswer ?? "") } : {}),
     }, response: { answerText: response.answerText, submittedAt: response.submittedAt, result: response.result, reviewStatus: response.reviewStatus, pointsAwarded: response.pointsAwarded },
   };

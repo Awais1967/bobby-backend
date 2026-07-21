@@ -5,7 +5,7 @@ const responseSchema = new mongoose.Schema({
   teamName: { type: String, required: true, trim: true },
   answerText: { type: String, trim: true, default: "" },
   submittedAt: { type: Date, default: null },
-  reviewStatus: { type: String, enum: ["pending", "correct", "incorrect"], default: "pending" },
+  reviewStatus: { type: String, enum: ["pending", "correct", "partial", "incorrect"], default: "pending" },
   result: { type: String, enum: ["pending", "winner", "not_winner"], default: "pending" },
   pointsAwarded: { type: Number, min: 0, default: 0 },
 }, { _id: false });
