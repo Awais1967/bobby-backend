@@ -50,6 +50,29 @@ const billingReportColumns = [
   },
 ];
 
+const clientSummaryColumns = [
+  { key: "clientName", header: "Client Name" },
+  { key: "clientEmail", header: "Client Email" },
+  { key: "fullServiceGames", header: "Full Service Games" },
+  { key: "quickStartGames", header: "Quick Start Games" },
+  { key: "totalGames", header: "Total Games" },
+  { key: "totalTeams", header: "Total Teams" },
+  { key: "totalAmount", header: "Total Amount" },
+  { key: "firstMatchAt", header: "First Match Date" },
+  { key: "lastMatchAt", header: "Last Match Date" },
+];
+
+const hostSummaryColumns = [
+  { key: "hostName", header: "Host Name" },
+  { key: "hostEmail", header: "Host Email" },
+  { key: "serviceTypeLabel", header: "Service Type" },
+  { key: "gamesHosted", header: "Games Hosted" },
+  { key: "totalHours", header: "Total Hours" },
+  { key: "totalMinutes", header: "Total Minutes" },
+  { key: "firstHostedAt", header: "First Hosted Game" },
+  { key: "lastHostedAt", header: "Last Hosted Game" },
+];
+
 function assertReportData(items) {
   if (!items.length) {
     const error = new Error("No report data found for selected filters.");
@@ -98,6 +121,26 @@ function getHostReports(filters) {
   return analyticsService.getHostPerformanceRows(filters);
 }
 
+function getClientSummary(filters) {
+  return analyticsService.getClientSummaryRows(filters);
+}
+
+function getHostSummary(filters) {
+  return analyticsService.getHostSummaryRows(filters);
+}
+
+async function exportClientSummaryCsv(filters) {
+  const { items } = await analyticsService.getClientSummaryRows(filters, { exportMode: true });
+  assertReportData(items);
+  return exportService.exportToCsv(items, clientSummaryColumns);
+}
+
+async function exportHostSummaryCsv(filters) {
+  const { items } = await analyticsService.getHostSummaryRows(filters, { exportMode: true });
+  assertReportData(items);
+  return exportService.exportToCsv(items, hostSummaryColumns);
+}
+
 function getLocationReports(filters) {
   return analyticsService.getLocationPerformanceRows(filters);
 }
@@ -115,12 +158,16 @@ function getTeamAnalytics(filters) {
 }
 
 module.exports = {
+  exportClientSummaryCsv,
+  exportHostSummaryCsv,
   exportBillingReportsCsv,
   exportBillingReportsExcel,
   exportMatchReportsCsv,
   exportMatchReportsExcel,
   getBillingReports,
   getHostReports,
+  getClientSummary,
+  getHostSummary,
   getLocationReports,
   getMatchReportDetail,
   getMatchReports,

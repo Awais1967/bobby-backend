@@ -12,6 +12,7 @@ const {
   getPeriodKey,
 } = require("../../utils/date");
 const Transaction = require("../billing/transaction.model");
+const Game = require("../games/game.model");
 const Host = require("../hosts/host.model");
 const Location = require("../locations/location.model");
 const Answer = require("../matches/answer.model");
@@ -36,11 +37,7 @@ function average(total, count) {
 function buildMatchDateFilter(filters) {
   const range = getDateRangeFilter(filters.startDate, filters.endDate);
   if (!range) return null;
-
-  return [
-    { startedAt: range },
-    { startedAt: null, createdAt: range },
-  ];
+  return { startedAt: range };
 }
 
 function buildMatchFilter(filters = {}) {
@@ -53,8 +50,8 @@ function buildMatchFilter(filters = {}) {
   if (filters.billingStatus) filter.billingStatus = filters.billingStatus;
   if (filters.billingMode) filter.billingMode = filters.billingMode;
 
-  const dateConditions = buildMatchDateFilter(filters);
-  if (dateConditions) filter.$or = dateConditions;
+  const dateCondition = buildMatchDateFilter(filters);
+  if (dateCondition) Object.assign(filter, dateCondition);
 
   if (filters.search) {
     const regex = new RegExp(escapeRegex(filters.search), "i");
@@ -65,12 +62,7 @@ function buildMatchFilter(filters = {}) {
       { hostName: regex },
     ];
 
-    if (filter.$or) {
-      filter.$and = [{ $or: filter.$or }, { $or: searchConditions }];
-      delete filter.$or;
-    } else {
-      filter.$or = searchConditions;
-    }
+    filter.$or = searchConditions;
   }
 
   return filter;
@@ -98,6 +90,45 @@ function getMatchEndedAt(match) {
   return match.closedAt || match.endedAt || null;
 }
 
+function normalizeServiceType(value) {
+  const normalized = String(value || "").toLowerCase().replace(/[\s-]+/g, "_");
+  if (["quick", "quick_start", "quick_service"].includes(normalized)) return "quick_start";
+  if (["full", "full_service"].includes(normalized)) return "full_service";
+  return "";
+}
+
+function getMatchServiceType(match, game) {
+  const explicit = normalizeServiceType(
+    match.serviceType || match.bookingType || match.serviceModel || match.gameType
+  );
+  if (explicit) return explicit;
+
+  const selectedPrice = Number(match.chargedAmount ?? match.defaultMatchPrice ?? 0);
+  const quickPrice = Number(game?.quickServicePrice || 0);
+  const fullPrice = Number(game?.fullServicePayment || game?.totalPayment || 0);
+  if (quickPrice > 0 && selectedPrice === quickPrice && quickPrice !== fullPrice) return "quick_start";
+  return "full_service";
+}
+
+function formatServiceType(value) {
+  return value === "quick_start" ? "Quick Start" : "Full Service";
+}
+
+function validDurationMinutes(match) {
+  const endedAt = getMatchEndedAt(match);
+  if (!match.startedAt || !endedAt) return 0;
+  return calculateDurationMinutes(match.startedAt, endedAt) || 0;
+}
+
+async function getGamesForMatches(matches) {
+  const ids = [...new Set(matches.map((match) => idToString(match.gameId)).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const games = await Game.find({ _id: { $in: ids } })
+    .select("totalPayment fullServicePayment quickServicePrice")
+    .lean();
+  return games.reduce((map, game) => map.set(idToString(game._id), game), new Map());
+}
+
 function sanitizeTeam(team, responseCounts = null, totalQuestions = 0) {
   const totalResponses = responseCounts?.totalResponses || 0;
   return {
@@ -113,12 +144,14 @@ function sanitizeTeam(team, responseCounts = null, totalQuestions = 0) {
   };
 }
 
-function buildMatchRow(match, transaction) {
+function buildMatchRow(match, transaction, game) {
   const reportDate = getMatchReportDate(match);
   const endedAt = getMatchEndedAt(match);
 
   return {
     matchId: match.matchId,
+    clientId: idToString(match.locationId),
+    hostId: idToString(match.hostId),
     gameName: match.gameTitle,
     clientName: match.locationName,
     hostName: match.hostName,
@@ -136,6 +169,8 @@ function buildMatchRow(match, transaction) {
     receiptEmailDestinations: transaction?.receiptEmailDestinations || match.receiptEmailDestinations || [],
     gameStatus: match.currentState,
     matchStatus: match.status,
+    serviceType: getMatchServiceType(match, game),
+    serviceTypeLabel: formatServiceType(getMatchServiceType(match, game)),
   };
 }
 
@@ -163,26 +198,133 @@ async function getMatchReportRows(filters = {}, options = {}) {
     maxPageSize: exportMode ? MAX_EXPORT_ROWS : 100,
   });
 
-  const query = Match.find(filter)
-    .sort({ [sortField]: sortOrder, createdAt: -1 })
-    .lean();
-
-  if (exportMode) {
-    query.limit(MAX_EXPORT_ROWS);
-  } else {
-    query.skip(pagination.skip).limit(pagination.limit);
+  const needsServiceFilter = Boolean(filters.serviceType);
+  const query = Match.find(filter).sort({ [sortField]: sortOrder, createdAt: -1 }).lean();
+  if (!needsServiceFilter) {
+    if (exportMode) query.limit(MAX_EXPORT_ROWS);
+    else query.skip(pagination.skip).limit(pagination.limit);
   }
 
-  const [matches, total] = await Promise.all([
-    query,
-    Match.countDocuments(filter),
-  ]);
+  let matches = await query;
+  const gameMap = await getGamesForMatches(matches);
+  if (needsServiceFilter) {
+    matches = matches.filter((match) => getMatchServiceType(match, gameMap.get(idToString(match.gameId))) === filters.serviceType);
+  }
+  const total = needsServiceFilter ? matches.length : await Match.countDocuments(filter);
+  if (needsServiceFilter) {
+    matches = exportMode ? matches.slice(0, MAX_EXPORT_ROWS) : matches.slice(pagination.skip, pagination.skip + pagination.limit);
+  }
 
   const transactionMap = await getTransactionsForMatches(matches.map((match) => match._id));
-  const items = matches.map((match) => buildMatchRow(match, transactionMap.get(idToString(match._id))));
+  const items = matches.map((match) => buildMatchRow(
+    match,
+    transactionMap.get(idToString(match._id)),
+    gameMap.get(idToString(match.gameId))
+  ));
 
   if (exportMode) return { items, total };
   return buildPaginationResponse(items, total, pagination.page, pagination.pageSize);
+}
+
+async function getStartedReportMatches(filters = {}) {
+  const matchFilter = buildMatchFilter(filters);
+  matchFilter.startedAt = matchFilter.startedAt || { $ne: null };
+  if (!filters.matchStatus) matchFilter.status = { $ne: MATCH_STATUS.CANCELLED };
+  const matches = await Match.find(matchFilter).lean();
+  const gameMap = await getGamesForMatches(matches);
+  return matches.filter((match) => {
+    const type = getMatchServiceType(match, gameMap.get(idToString(match.gameId)));
+    return !filters.serviceType || type === filters.serviceType;
+  }).map((match) => ({
+    ...match,
+    reportServiceType: getMatchServiceType(match, gameMap.get(idToString(match.gameId))),
+  }));
+}
+
+function paginateRows(rows, filters, options = {}) {
+  if (options.exportMode) return { items: rows.slice(0, MAX_EXPORT_ROWS), total: rows.length };
+  const pagination = getPagination(filters);
+  return buildPaginationResponse(
+    rows.slice(pagination.skip, pagination.skip + pagination.limit),
+    rows.length,
+    pagination.page,
+    pagination.pageSize
+  );
+}
+
+async function getClientSummaryRows(filters = {}, options = {}) {
+  const matches = await getStartedReportMatches(filters);
+  const locationIds = [...new Set(matches.map((match) => idToString(match.locationId)).filter(Boolean))];
+  const locations = await Location.find({ _id: { $in: locationIds } })
+    .select("name clientName clientEmail contactEmail billingContactEmail")
+    .lean();
+  const locationMap = locations.reduce((map, location) => map.set(idToString(location._id), location), new Map());
+  const transactionMap = await getTransactionsForMatches(matches.map((match) => match._id));
+  const groups = new Map();
+
+  matches.forEach((match) => {
+    const key = idToString(match.locationId);
+    const location = locationMap.get(key);
+    if (!groups.has(key)) groups.set(key, {
+      clientId: key,
+      clientName: location?.clientName || location?.name || match.locationName,
+      clientEmail: location?.clientEmail || location?.contactEmail || location?.billingContactEmail || "",
+      fullServiceGames: 0,
+      quickStartGames: 0,
+      totalGames: 0,
+      totalTeams: 0,
+      totalAmount: 0,
+      currency: match.currency || "usd",
+      firstMatchAt: null,
+      lastMatchAt: null,
+    });
+    const row = groups.get(key);
+    row[match.reportServiceType === "quick_start" ? "quickStartGames" : "fullServiceGames"] += 1;
+    row.totalGames += 1;
+    row.totalTeams += match.totalTeams || 0;
+    row.totalAmount += transactionMap.get(idToString(match._id))?.amount ?? match.chargedAmount ?? match.defaultMatchPrice ?? 0;
+    row.firstMatchAt = !row.firstMatchAt || match.startedAt < row.firstMatchAt ? match.startedAt : row.firstMatchAt;
+    row.lastMatchAt = !row.lastMatchAt || match.startedAt > row.lastMatchAt ? match.startedAt : row.lastMatchAt;
+  });
+
+  const rows = [...groups.values()].sort((a, b) => b.totalGames - a.totalGames || a.clientName.localeCompare(b.clientName));
+  return paginateRows(rows, filters, options);
+}
+
+async function getHostSummaryRows(filters = {}, options = {}) {
+  const matches = await getStartedReportMatches(filters);
+  const hostIds = [...new Set(matches.map((match) => idToString(match.hostId)).filter(Boolean))];
+  const hosts = await Host.find({ _id: { $in: hostIds } }).select("name email").lean();
+  const hostMap = hosts.reduce((map, host) => map.set(idToString(host._id), host), new Map());
+  const groups = new Map();
+
+  matches.forEach((match) => {
+    const hostId = idToString(match.hostId);
+    const key = `${hostId}:${match.reportServiceType}`;
+    const host = hostMap.get(hostId);
+    if (!groups.has(key)) groups.set(key, {
+      hostId,
+      hostName: host?.name || match.hostName,
+      hostEmail: host?.email || "",
+      serviceType: match.reportServiceType,
+      serviceTypeLabel: formatServiceType(match.reportServiceType),
+      gamesHosted: 0,
+      totalMinutes: 0,
+      firstHostedAt: null,
+      lastHostedAt: null,
+    });
+    const row = groups.get(key);
+    row.gamesHosted += 1;
+    row.totalMinutes += validDurationMinutes(match);
+    row.firstHostedAt = !row.firstHostedAt || match.startedAt < row.firstHostedAt ? match.startedAt : row.firstHostedAt;
+    row.lastHostedAt = !row.lastHostedAt || match.startedAt > row.lastHostedAt ? match.startedAt : row.lastHostedAt;
+  });
+
+  const rows = [...groups.values()].map((row) => ({
+    ...row,
+    totalHours: Number((row.totalMinutes / 60).toFixed(2)),
+  })).sort((a, b) => b.gamesHosted - a.gamesHosted || a.hostName.localeCompare(b.hostName));
+  return paginateRows(rows, filters, options);
 }
 
 async function getMatchReportDetail(matchId) {
@@ -717,6 +859,8 @@ async function getLocationPerformanceRows(filters = {}) {
 module.exports = {
   getBillingReportRows,
   getHostPerformanceRows,
+  getHostSummaryRows,
+  getClientSummaryRows,
   getLocationPerformanceRows,
   getMatchReportDetail,
   getMatchReportRows,

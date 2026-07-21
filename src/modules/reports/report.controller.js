@@ -1,6 +1,8 @@
 const reportService = require("./report.service");
 const {
   getBillingReportsQueryValidation,
+  getClientSummaryQueryValidation,
+  getHostSummaryQueryValidation,
   getHostReportsQueryValidation,
   getLocationReportsQueryValidation,
   getMatchReportsQueryValidation,
@@ -113,6 +115,40 @@ async function getLocationReports(req, res, next) {
   }
 }
 
+async function getClientSummary(req, res, next) {
+  try {
+    const query = validate(getClientSummaryQueryValidation, req.query);
+    const data = await reportService.getClientSummary(query);
+    return res.status(200).json({ success: true, data });
+  } catch (error) { return next(error); }
+}
+
+async function getHostSummary(req, res, next) {
+  try {
+    const query = validate(getHostSummaryQueryValidation, req.query);
+    const data = await reportService.getHostSummary(query);
+    return res.status(200).json({ success: true, data });
+  } catch (error) { return next(error); }
+}
+
+async function exportClientSummaryCsv(req, res, next) {
+  try {
+    const query = validate(getClientSummaryQueryValidation, req.query);
+    const csv = await reportService.exportClientSummaryCsv(query);
+    setCsvHeaders(res, "trivia-goat-client-summary.csv");
+    return res.status(200).send(csv);
+  } catch (error) { return next(error); }
+}
+
+async function exportHostSummaryCsv(req, res, next) {
+  try {
+    const query = validate(getHostSummaryQueryValidation, req.query);
+    const csv = await reportService.exportHostSummaryCsv(query);
+    setCsvHeaders(res, "trivia-goat-host-summary.csv");
+    return res.status(200).send(csv);
+  } catch (error) { return next(error); }
+}
+
 async function getReportsSummary(req, res, next) {
   try {
     const query = validate(getReportsSummaryQueryValidation, req.query);
@@ -144,12 +180,16 @@ async function getTeamAnalytics(req, res, next) {
 }
 
 module.exports = {
+  exportClientSummaryCsv,
+  exportHostSummaryCsv,
   exportBillingReportsCsv,
   exportBillingReportsExcel,
   exportMatchReportsCsv,
   exportMatchReportsExcel,
   getBillingReports,
   getHostReports,
+  getClientSummary,
+  getHostSummary,
   getLocationReports,
   getMatchReportDetail,
   getMatchReports,

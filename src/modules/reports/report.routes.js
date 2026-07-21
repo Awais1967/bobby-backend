@@ -23,6 +23,11 @@ router.get("/matches/export/excel", superAdminOnly, reportController.exportMatch
 router.get("/matches", superAdminOnly, reportController.getMatchReports);
 router.get("/matches/:matchId", superAdminOnly, reportController.getMatchReportDetail);
 
+router.get("/clients/export/csv", superAdminOnly, reportController.exportClientSummaryCsv);
+router.get("/clients", superAdminOnly, reportController.getClientSummary);
+router.get("/hosts/summary/export/csv", superAdminOnly, reportController.exportHostSummaryCsv);
+router.get("/hosts/summary", superAdminOnly, reportController.getHostSummary);
+
 router.get("/billing/export/csv", superAdminOnly, reportController.exportBillingReportsCsv);
 router.get("/billing/export/excel", superAdminOnly, reportController.exportBillingReportsExcel);
 router.get("/billing", superAdminOnly, reportController.getBillingReports);

@@ -16,6 +16,15 @@ const dateFields = {
   endDate: Joi.date().iso().optional(),
 };
 
+const summaryFilterFields = {
+  ...pageFields,
+  ...dateFields,
+  locationId: Joi.string().pattern(objectIdPattern).optional(),
+  hostId: Joi.string().pattern(objectIdPattern).optional(),
+  serviceType: Joi.string().valid("full_service", "quick_start").optional(),
+  matchStatus: Joi.string().valid(...Object.values(MATCH_STATUS)).optional(),
+};
+
 const matchSortFields = [
   "matchId",
   "gameTitle",
@@ -39,6 +48,7 @@ const getMatchReportsQueryValidation = Joi.object({
   matchStatus: Joi.string().valid(...Object.values(MATCH_STATUS)).optional(),
   billingStatus: Joi.string().valid(...Object.values(BILLING_STATUS)).optional(),
   billingMode: Joi.string().valid(...Object.values(BILLING_MODE)).optional(),
+  serviceType: Joi.string().valid("full_service", "quick_start").optional(),
   sortBy: Joi.string().valid(...matchSortFields).default("startedAt"),
   sortOrder: Joi.string().valid("asc", "desc").default("desc"),
 });
@@ -58,6 +68,9 @@ const getHostReportsQueryValidation = Joi.object({
   hostId: Joi.string().pattern(objectIdPattern).optional(),
   locationId: Joi.string().pattern(objectIdPattern).optional(),
 });
+
+const getClientSummaryQueryValidation = Joi.object(summaryFilterFields);
+const getHostSummaryQueryValidation = Joi.object(summaryFilterFields);
 
 const getLocationReportsQueryValidation = Joi.object({
   ...pageFields,
@@ -104,6 +117,8 @@ function validate(schema, payload) {
 }
 
 module.exports = {
+  getClientSummaryQueryValidation,
+  getHostSummaryQueryValidation,
   getBillingReportsQueryValidation,
   getHostReportsQueryValidation,
   getLocationReportsQueryValidation,
