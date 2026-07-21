@@ -684,15 +684,7 @@ async function getTieBreakerQuestions(matchDbId, hostId, query = {}) {
     filter.type = String(query.type).trim();
   }
 
-  let questions = await Question.find(filter).sort({ category: 1, questionText: 1 }).lean();
-
-  // Older question banks predate usageType and therefore contain no dedicated
-  // tie-breakers. Keep the feature usable by falling back to the active bank.
-  if (questions.length === 0) {
-    const fallbackFilter = { ...filter };
-    delete fallbackFilter.usageType;
-    questions = await Question.find(fallbackFilter).sort({ category: 1, questionText: 1 }).lean();
-  }
+  const questions = await Question.find(filter).sort({ category: 1, questionText: 1 }).lean();
   return {
     items: questions.map(toHostQuestionResponse),
     total: questions.length,

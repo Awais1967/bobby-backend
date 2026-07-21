@@ -7,6 +7,7 @@ const Answer = require("../matches/answer.model");
 const Game = require("../games/game.model");
 const Match = require("../matches/match.model");
 const Team = require("../matches/team.model");
+const TieBreaker = require("../matches/tieBreaker.model");
 const Question = require("../questions/question.model");
 
 function createHttpError(message, statusCode) {
@@ -278,10 +279,40 @@ async function getPlayerState(playerPayload) {
 
 async function getPresentationState(matchId) {
   const match = await getMatchByPublicId(matchId);
-  const [leaderboard, currentQuestion] = await Promise.all([
+  const [leaderboard, currentQuestion, tieBreaker] = await Promise.all([
     getMatchLeaderboard(match._id),
     getCurrentSafeQuestion(match, true),
+    TieBreaker.findOne({ matchDbId: match._id }).sort({ createdAt: -1 }).lean(),
   ]);
+  const tieBreakerQuestion = tieBreaker
+    ? {
+        questionId: tieBreaker.questionId.toString(),
+        questionText: tieBreaker.question.questionText,
+        category: tieBreaker.question.category,
+        type: tieBreaker.question.type,
+        mediaType: tieBreaker.question.imageUrl
+          ? "image"
+          : tieBreaker.question.audioUrl
+            ? "audio"
+            : "",
+        imageUrl: tieBreaker.question.imageUrl || "",
+        audioUrl: tieBreaker.question.audioUrl || "",
+        options:
+          tieBreaker.question.type === "fifty_fifty"
+            ? (tieBreaker.question.fiftyFiftyOptions || []).map((text) => ({ text, label: text }))
+            : tieBreaker.question.options || [],
+        points: Number(tieBreaker.question.points) || 10,
+        answerCount: Math.max((tieBreaker.question.correctAnswers || []).filter(Boolean).length, 1),
+        answer: tieBreaker.revealedAt ? getCorrectAnswerDisplay(tieBreaker.question) : "",
+        explanation: tieBreaker.revealedAt
+          ? tieBreaker.question.notes || tieBreaker.question.explanation || ""
+          : "",
+        notes: tieBreaker.revealedAt
+          ? tieBreaker.question.notes || tieBreaker.question.explanation || ""
+          : "",
+        isTieBreaker: true,
+      }
+    : null;
 
   return {
     gameTitle: match.gameTitle,
@@ -294,9 +325,12 @@ async function getPresentationState(matchId) {
     status: match.status,
     currentState: match.currentState,
     isQuestionOpen: match.isQuestionOpen,
-    isAnswerRevealed: Boolean(match.isAnswerRevealed),
+    isAnswerRevealed: tieBreaker
+      ? Boolean(tieBreaker.revealedAt)
+      : Boolean(match.isAnswerRevealed),
     isFinalQuestionRevealed: Boolean(match.isFinalQuestionRevealed),
-    currentQuestion,
+    currentQuestion: tieBreakerQuestion || currentQuestion,
+    isTieBreaker: Boolean(tieBreakerQuestion),
     leaderboard,
   };
 }

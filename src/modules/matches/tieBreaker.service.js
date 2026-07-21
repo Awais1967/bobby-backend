@@ -12,6 +12,32 @@ function httpError(message, statusCode) {
   return error;
 }
 
+function normalizeAnswer(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function isExactTieBreakerAnswer(question, answerText) {
+  const expectedParts = (question.correctAnswers || []).filter(Boolean);
+
+  if (expectedParts.length > 1) {
+    const submittedParts = String(answerText || "")
+      .split("|")
+      .map(normalizeAnswer)
+      .filter(Boolean);
+    return (
+      submittedParts.length === expectedParts.length &&
+      expectedParts.every(
+        (expected, index) => normalizeAnswer(expected) === submittedParts[index]
+      )
+    );
+  }
+
+  const possibleAnswers = [question.correctAnswer, ...expectedParts]
+    .filter(Boolean)
+    .map(normalizeAnswer);
+  return possibleAnswers.includes(normalizeAnswer(answerText));
+}
+
 async function ownedMatch(matchDbId, hostId) {
   if (!mongoose.isValidObjectId(matchDbId)) throw httpError("Match not found.", 404);
   const match = await Match.findOne({ _id: matchDbId, hostId });
@@ -39,7 +65,11 @@ async function startSession(matchDbId, hostId, payload) {
   }
 
   const [question, teams] = await Promise.all([
-    Question.findOne({ _id: payload.questionId, status: "active" }).lean(),
+    Question.findOne({
+      _id: payload.questionId,
+      status: "active",
+      usageType: "tie_breaker",
+    }).lean(),
     Team.find({ _id: { $in: teamIds }, matchDbId: match._id, status: { $ne: TEAM_STATUS.REMOVED } }).lean(),
   ]);
   if (!question) throw httpError("Tie-breaker question not found.", 404);
@@ -76,11 +106,46 @@ async function reviewResponse(matchDbId, hostId, payload) {
   if (!mongoose.isValidObjectId(payload.teamId) || !["correct", "incorrect"].includes(payload.reviewStatus)) {
     throw httpError("Provide a valid team and review status.", 400);
   }
-  const session = await TieBreaker.findOne({ matchDbId, status: "open" });
-  if (!session) throw httpError("No active tie-breaker exists.", 404);
+  const session = await TieBreaker.findOne({ matchDbId }).sort({ createdAt: -1 });
+  if (!session) throw httpError("No tie-breaker exists.", 404);
   const response = session.responses.find((item) => item.teamId.toString() === payload.teamId);
   if (!response || !response.submittedAt) throw httpError("That team has not submitted a response.", 400);
+
+  if (session.revealedAt) {
+    const points = Number(session.question.points) || 10;
+    const previousPoints = Number(response.pointsAwarded) || 0;
+    const nextPoints = payload.reviewStatus === "correct" ? points : 0;
+    const pointsChange = nextPoints - previousPoints;
+
+    if (pointsChange > 0) {
+      await scoringService.addTeamScore(matchDbId, response.teamId.toString(), hostId, {
+        points: pointsChange,
+        reason: "Tie-breaker grading updated",
+        note: `Tie-breaker question: ${session.question.questionText}`,
+      });
+    } else if (pointsChange < 0) {
+      await scoringService.deductTeamScore(matchDbId, response.teamId.toString(), hostId, {
+        points: Math.abs(pointsChange),
+        reason: "Tie-breaker grading updated",
+        note: `Tie-breaker question: ${session.question.questionText}`,
+      });
+    }
+
+    response.pointsAwarded = nextPoints;
+  }
+
   response.reviewStatus = payload.reviewStatus;
+  if (session.revealedAt) {
+    const correctResponses = session.responses.filter(
+      (item) => item.reviewStatus === "correct"
+    );
+    session.responses.forEach((item) => {
+      item.result =
+        correctResponses.length === 1 && item.reviewStatus === "correct"
+          ? "winner"
+          : "not_winner";
+    });
+  }
   await session.save();
   return hostView(session);
 }
@@ -89,9 +154,17 @@ async function revealSession(matchDbId, hostId) {
   await ownedMatch(matchDbId, hostId);
   const session = await TieBreaker.findOne({ matchDbId, status: "open" });
   if (!session) throw httpError("No active tie-breaker exists.", 404);
-  if (session.responses.some((item) => !item.submittedAt || item.reviewStatus === "pending")) {
-    throw httpError("Wait for and review every selected team's response before revealing.", 400);
+  if (session.responses.some((item) => !item.submittedAt)) {
+    throw httpError("Wait for every selected team to submit before revealing.", 400);
   }
+
+  session.responses.forEach((item) => {
+    if (item.reviewStatus === "pending") {
+      item.reviewStatus = isExactTieBreakerAnswer(session.question, item.answerText)
+        ? "correct"
+        : "incorrect";
+    }
+  });
 
   const correct = session.responses.filter((item) => item.reviewStatus === "correct");
   const points = Number(session.question.points) || 10;
