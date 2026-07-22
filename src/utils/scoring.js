@@ -123,12 +123,14 @@ function calculateMatchedAnswerPoints(question, answer) {
 function calculateAwardedPoints(question, answer, reviewPayload) {
   const matchedAnswers = calculateMatchedAnswerPoints(question, answer);
 
-  if (matchedAnswers && reviewPayload.reviewStatus === "partial") {
-    return matchedAnswers.awardedPoints;
-  }
-
+  // A host's explicit manual score must take precedence over automatic
+  // multi-answer matching (for example, Half +10 on a 20-point question).
   if (typeof reviewPayload.awardedPoints === "number") {
     return reviewPayload.awardedPoints;
+  }
+
+  if (matchedAnswers && reviewPayload.reviewStatus === "partial") {
+    return matchedAnswers.awardedPoints;
   }
 
   if (reviewPayload.reviewStatus === "correct") {
