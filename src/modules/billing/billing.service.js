@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const crypto = require("crypto");
 
 const { BILLING_MODE, BILLING_STATUS } = require("../../constants/billingStatus");
 const Match = require("../matches/match.model");
@@ -8,6 +9,7 @@ const Refund = require("./refund.model");
 const Transaction = require("./transaction.model");
 const receiptService = require("./receipt.service");
 const stripeService = require("./stripe.service");
+const cardSetupEmailService = require("./cardSetup-email.service");
 
 function createHttpError(message, statusCode) {
   const error = new Error(message);
@@ -29,6 +31,7 @@ function toResponse(document) {
   if (!document) return null;
   const data = typeof document.toObject === "function" ? document.toObject() : document;
   delete data.__v;
+  delete data.cardSetupTokenHash;
   if (data._id) {
     data.id = data._id.toString();
     delete data._id;
@@ -664,6 +667,159 @@ async function createClientSetupIntent(clientId) {
   };
 }
 
+function hashCardSetupToken(token) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function getCardSetupFrontendUrl() {
+  const baseUrl = process.env.ADMIN_FRONTEND_URL || process.env.CLIENT_URL;
+  if (!baseUrl) {
+    throw createHttpError("ADMIN_FRONTEND_URL or CLIENT_URL is required for card setup.", 500);
+  }
+  return baseUrl.replace(/\/+$/, "");
+}
+
+async function createClientCardSetupLink(clientId) {
+  ensureObjectId(clientId, "Client not found.");
+  ensureStripeConfigured();
+
+  const client = await Location.findById(clientId).select("+cardSetupTokenHash");
+  if (!client) throw createHttpError("Client not found.", 404);
+
+  const email = getClientEmail(client);
+  if (!email) throw createHttpError("Client email is required to send card setup.", 400);
+
+  const customerId = await ensureClientStripeCustomer(client);
+  const token = crypto.randomBytes(32).toString("base64url");
+  const expiresInHours = Number(process.env.CARD_SETUP_LINK_HOURS || 48);
+  const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
+  const setupIntent = await stripeService.createSetupIntent({
+    customer: customerId,
+    metadata: {
+      triviaGoatClientId: client._id.toString(),
+      triviaGoatCardSetup: "true",
+    },
+  });
+
+  client.cardSetupStatus = "pending";
+  client.cardSetupTokenHash = hashCardSetupToken(token);
+  client.cardSetupExpiresAt = expiresAt;
+  client.stripeSetupIntentId = setupIntent.id;
+  await client.save();
+
+  const setupUrl = `${getCardSetupFrontendUrl()}/card-setup/${encodeURIComponent(token)}`;
+  let emailResult;
+  try {
+    emailResult = await cardSetupEmailService.sendCardSetupEmail({
+      email,
+      clientName: getClientName(client),
+      setupUrl,
+      expiresInHours,
+    });
+  } catch (error) {
+    emailResult = {
+      delivered: false,
+      failureReason: error.message || "Card setup email could not be sent.",
+    };
+  }
+
+  if (emailResult.delivered) {
+    client.cardSetupEmailSentAt = new Date();
+    await client.save();
+  }
+
+  return {
+    client: toResponse(client),
+    delivered: emailResult.delivered,
+    email,
+    expiresAt,
+    setupUrl,
+    shareText: `Securely add your card for Trivia Goat: ${setupUrl}`,
+    failureReason: emailResult.failureReason || "",
+  };
+}
+
+async function findClientByCardSetupToken(token) {
+  if (!token || token.length < 32) throw createHttpError("Card setup link is invalid.", 404);
+  const client = await Location.findOne({
+    cardSetupTokenHash: hashCardSetupToken(token),
+  }).select("+cardSetupTokenHash");
+  if (!client) throw createHttpError("Card setup link is invalid.", 404);
+
+  if (!client.cardSetupExpiresAt || client.cardSetupExpiresAt.getTime() <= Date.now()) {
+    if (client.cardSetupStatus !== "complete") {
+      client.cardSetupStatus = "expired";
+      await client.save();
+    }
+    throw createHttpError("Card setup link has expired. Ask the administrator for a new link.", 410);
+  }
+  return client;
+}
+
+async function getPublicCardSetup(token) {
+  const client = await findClientByCardSetupToken(token);
+  if (client.cardSetupStatus === "complete") {
+    return {
+      clientName: client.clientName || client.name,
+      status: "complete",
+    };
+  }
+
+  const setupIntent = await stripeService.retrieveSetupIntent(client.stripeSetupIntentId);
+  return {
+    clientName: client.clientName || client.name,
+    clientSecret: setupIntent.client_secret,
+    expiresAt: client.cardSetupExpiresAt,
+    publishableKey: getPublishableKey(),
+    status: client.cardSetupStatus,
+  };
+}
+
+async function finalizeClientSetupIntent(setupIntent) {
+  const clientId = setupIntent?.metadata?.triviaGoatClientId;
+  if (!clientId || setupIntent.status !== "succeeded") return null;
+
+  const client = await Location.findById(clientId).select("+cardSetupTokenHash");
+  if (!client || (client.stripeSetupIntentId && client.stripeSetupIntentId !== setupIntent.id)) {
+    return null;
+  }
+
+  const paymentMethodId =
+    typeof setupIntent.payment_method === "string"
+      ? setupIntent.payment_method
+      : setupIntent.payment_method?.id;
+  const customerId =
+    typeof setupIntent.customer === "string" ? setupIntent.customer : setupIntent.customer?.id;
+  if (!paymentMethodId || !customerId) return null;
+
+  const paymentMethod = await ensurePaymentMethodAttachedToCustomer(paymentMethodId, customerId);
+  await setDefaultPaymentMethod(customerId, paymentMethodId);
+  const summary = summarizePaymentMethod(paymentMethod);
+
+  client.billingMethod = "card";
+  client.billingMode = BILLING_MODE.AUTO_CHARGE;
+  client.stripeCustomerId = customerId;
+  client.stripePaymentMethodId = paymentMethodId;
+  client.cardBrand = summary.cardBrand;
+  client.cardLast4 = summary.cardLast4;
+  client.cardExpMonth = summary.cardExpMonth;
+  client.cardExpYear = summary.cardExpYear;
+  client.maskedPaymentMethod = summary.maskedPaymentMethod;
+  client.cardSetupStatus = "complete";
+  await client.save();
+  return toResponse(client);
+}
+
+async function completePublicCardSetup(token) {
+  const client = await findClientByCardSetupToken(token);
+  const setupIntent = await stripeService.retrieveSetupIntent(client.stripeSetupIntentId);
+  if (setupIntent.status !== "succeeded") {
+    throw createHttpError("Stripe card setup is not complete.", 400);
+  }
+  const completedClient = await finalizeClientSetupIntent(setupIntent);
+  return { status: "complete", clientName: completedClient.clientName || completedClient.name };
+}
+
 async function saveClientPaymentMethod(clientId, payload) {
   ensureObjectId(clientId, "Client not found.");
   ensureStripeConfigured();
@@ -685,6 +841,7 @@ async function saveClientPaymentMethod(clientId, payload) {
   client.cardExpMonth = paymentSummary.cardExpMonth;
   client.cardExpYear = paymentSummary.cardExpYear;
   client.maskedPaymentMethod = paymentSummary.maskedPaymentMethod;
+  client.cardSetupStatus = "complete";
   await client.save();
 
   return {
@@ -795,6 +952,10 @@ module.exports = {
   chargeClosedMatch,
   cancelRefund,
   createClientSetupIntent,
+  createClientCardSetupLink,
+  completePublicCardSetup,
+  finalizeClientSetupIntent,
+  getPublicCardSetup,
   createRefund,
   createTransactionFromMatch,
   getBillingSummary,

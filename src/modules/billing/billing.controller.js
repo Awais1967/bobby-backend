@@ -119,6 +119,38 @@ async function createClientSetupIntent(req, res, next) {
   }
 }
 
+async function createClientCardSetupLink(req, res, next) {
+  try {
+    const params = validate(clientIdParamValidation, req.params);
+    const data = await billingService.createClientCardSetupLink(params.clientId);
+    return res.status(201).json({
+      success: true,
+      message: data.delivered ? "Secure card setup link emailed." : "Secure card setup link created.",
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getPublicCardSetup(req, res, next) {
+  try {
+    const data = await billingService.getPublicCardSetup(req.params.token);
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function completePublicCardSetup(req, res, next) {
+  try {
+    const data = await billingService.completePublicCardSetup(req.params.token);
+    return res.status(200).json({ success: true, message: "Card setup complete.", data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function saveClientPaymentMethod(req, res, next) {
   try {
     const params = validate(clientIdParamValidation, req.params);
@@ -150,11 +182,14 @@ module.exports = {
   cancelRefund,
   createRefund,
   createClientSetupIntent,
+  createClientCardSetupLink,
+  completePublicCardSetup,
   getBillingSummary,
   getRefundById,
   getRefunds,
   getTransactionById,
   getTransactions,
+  getPublicCardSetup,
   handleStripeWebhook,
   markInvoicePaid,
   retryTransaction,

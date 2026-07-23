@@ -139,6 +139,29 @@ const locationSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    cardSetupStatus: {
+      type: String,
+      enum: ["not_requested", "pending", "complete", "expired"],
+      default: "not_requested",
+    },
+    cardSetupTokenHash: {
+      type: String,
+      select: false,
+      default: "",
+    },
+    cardSetupExpiresAt: {
+      type: Date,
+      default: null,
+    },
+    stripeSetupIntentId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    cardSetupEmailSentAt: {
+      type: Date,
+      default: null,
+    },
     invoiceNotes: {
       type: String,
       trim: true,

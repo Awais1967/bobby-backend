@@ -103,6 +103,11 @@ async function handleStripeWebhook(event) {
     return null;
   }
 
+  if (event.type === "setup_intent.succeeded") {
+    const billingService = require("./billing.service");
+    return billingService.finalizeClientSetupIntent(object);
+  }
+
   if (event.type === "payment_intent.succeeded") {
     const transaction = await Transaction.findOne({ stripePaymentIntentId: object.id });
     if (!transaction) return null;

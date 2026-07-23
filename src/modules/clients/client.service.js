@@ -91,6 +91,7 @@ function removeRawCardFields(payload) {
   delete data.cvv;
   delete data.cvvCode;
   delete data.cardCvv;
+  delete data.cardSetupTokenHash;
   delete data.stripeCustomerId;
   return data;
 }
@@ -169,6 +170,9 @@ function toClientResponse(client, options = {}) {
       cardExpYear: data.cardExpYear,
       cardLast4: data.cardLast4,
       maskedPaymentMethod: data.maskedPaymentMethod,
+      cardSetupStatus: data.cardSetupStatus,
+      cardSetupExpiresAt: data.cardSetupExpiresAt,
+      cardSetupEmailSentAt: data.cardSetupEmailSentAt,
       pricingDiscount: data.pricingDiscount,
       discountType: data.discountType,
       discountValue: data.discountValue,

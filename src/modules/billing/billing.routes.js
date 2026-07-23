@@ -12,9 +12,10 @@ const requireSuperAdmin = requireRole(ROLES.SUPER_ADMIN, {
 });
 
 router.post("/webhook", billingController.handleStripeWebhook);
+router.get("/card-setup/:token", billingController.getPublicCardSetup);
+router.post("/card-setup/:token/complete", billingController.completePublicCardSetup);
 router.get("/summary", authMiddleware, requireSuperAdmin, billingController.getBillingSummary);
-router.post("/clients/:clientId/setup-intent", authMiddleware, requireSuperAdmin, billingController.createClientSetupIntent);
-router.post("/clients/:clientId/payment-method", authMiddleware, requireSuperAdmin, billingController.saveClientPaymentMethod);
+router.post("/clients/:clientId/setup-link", authMiddleware, requireSuperAdmin, billingController.createClientCardSetupLink);
 router.get("/refunds", authMiddleware, requireSuperAdmin, billingController.getRefunds);
 router.get("/refunds/:id", authMiddleware, requireSuperAdmin, billingController.getRefundById);
 router.post("/refunds/:id/cancel", authMiddleware, requireSuperAdmin, billingController.cancelRefund);
